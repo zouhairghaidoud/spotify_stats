@@ -1,9 +1,31 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#070908">
+
+        <script>
+            (function () {
+                var theme = 'dark';
+
+                try {
+                    if (localStorage.getItem('theme') === 'light') {
+                        theme = 'light';
+                    }
+                } catch (error) {
+                    // Storage can be unavailable; fall back to the dark theme.
+                }
+
+                document.documentElement.classList.add(theme);
+
+                if (theme === 'light') {
+                    document
+                        .querySelector('meta[name="theme-color"]')
+                        .setAttribute('content', '#f6f8f7');
+                }
+            })();
+        </script>
 
         <title inertia>{{ config('app.name', 'Laravel') }}</title>
 

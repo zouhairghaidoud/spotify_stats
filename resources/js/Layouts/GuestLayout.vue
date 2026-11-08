@@ -1,5 +1,6 @@
 <script setup>
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
+import ThemeToggle from '@/Components/ThemeToggle.vue';
 import { Link } from '@inertiajs/vue3';
 </script>
 
@@ -16,8 +17,12 @@ import { Link } from '@inertiajs/vue3';
                 class="absolute -bottom-24 right-0 h-72 w-72 rounded-full bg-emerald-400/[0.06] blur-3xl"
             ></div>
             <div
-                class="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)]"
+                class="absolute inset-0 bg-[linear-gradient(to_right,rgb(var(--white)/0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgb(var(--white)/0.05)_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)]"
             ></div>
+        </div>
+
+        <div class="absolute right-4 top-4 z-10 sm:right-6 sm:top-6">
+            <ThemeToggle />
         </div>
 
         <div class="relative w-full max-w-md">

@@ -1,5 +1,8 @@
 import defaultTheme from 'tailwindcss/defaultTheme';
 import forms from '@tailwindcss/forms';
+import plugin from 'tailwindcss/plugin';
+
+const rgb = (variable) => `rgb(var(${variable}) / <alpha-value>)`;
 
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -18,39 +21,45 @@ export default {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
             },
             colors: {
+                white: rgb('--white'),
                 brand: {
-                    50: '#e9fbf1',
-                    100: '#c9f5db',
-                    200: '#94eab9',
-                    300: '#5cdc93',
-                    400: '#27c971',
-                    500: '#1db954',
-                    600: '#16a349',
-                    700: '#13833c',
-                    800: '#126832',
-                    900: '#0f552b',
+                    50: rgb('--brand-50'),
+                    100: rgb('--brand-100'),
+                    200: rgb('--brand-200'),
+                    300: rgb('--brand-300'),
+                    400: rgb('--brand-400'),
+                    500: rgb('--brand-500'),
+                    600: rgb('--brand-600'),
+                    700: rgb('--brand-700'),
+                    800: rgb('--brand-800'),
+                    900: rgb('--brand-900'),
                 },
                 ink: {
-                    50: '#f4f6f5',
-                    100: '#e3e7e5',
-                    200: '#c7cfcb',
-                    300: '#a0aca7',
-                    400: '#6f7d77',
-                    500: '#4f5b56',
-                    600: '#3a4440',
-                    700: '#2a3230',
-                    800: '#1b211f',
-                    850: '#141918',
-                    900: '#0e1211',
-                    950: '#070908',
+                    50: rgb('--ink-50'),
+                    100: rgb('--ink-100'),
+                    200: rgb('--ink-200'),
+                    300: rgb('--ink-300'),
+                    400: rgb('--ink-400'),
+                    500: rgb('--ink-500'),
+                    600: rgb('--ink-600'),
+                    700: rgb('--ink-700'),
+                    800: rgb('--ink-800'),
+                    850: rgb('--ink-850'),
+                    900: rgb('--ink-900'),
+                    950: rgb('--ink-950'),
                 },
             },
             boxShadow: {
                 glow: '0 0 0 1px rgba(29, 185, 84, 0.25), 0 20px 60px -20px rgba(29, 185, 84, 0.45)',
-                card: '0 20px 50px -24px rgba(0, 0, 0, 0.8)',
+                card: '0 20px 50px -24px rgb(var(--shadow) / 0.8)',
             },
         },
     },
 
-    plugins: [forms],
+    plugins: [
+        forms,
+        plugin(({ addVariant }) => {
+            addVariant('light', 'html.light &');
+        }),
+    ],
 };

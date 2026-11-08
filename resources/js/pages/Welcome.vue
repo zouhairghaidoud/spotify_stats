@@ -1,5 +1,6 @@
 <script setup>
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
+import ThemeToggle from '@/Components/ThemeToggle.vue';
 import { Head, Link } from '@inertiajs/vue3';
 
 defineProps({
@@ -58,7 +59,7 @@ const features = [
 </script>
 
 <template>
-    <Head title="Spotify Stats" />
+    <Head title="Welcome" />
 
     <div class="relative min-h-screen overflow-hidden bg-ink-950">
         <!-- Ambient background -->
@@ -70,7 +71,7 @@ const features = [
                 class="absolute -bottom-32 -left-24 h-80 w-80 rounded-full bg-emerald-400/[0.07] blur-3xl"
             ></div>
             <div
-                class="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(ellipse_at_top,black,transparent_70%)]"
+                class="absolute inset-0 bg-[linear-gradient(to_right,rgb(var(--white)/0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgb(var(--white)/0.05)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(ellipse_at_top,black,transparent_70%)]"
             ></div>
         </div>
 
@@ -87,6 +88,8 @@ const features = [
                 </Link>
 
                 <nav class="flex items-center gap-2 sm:gap-3">
+                    <ThemeToggle />
+
                     <template v-if="$page.props.auth.user">
                         <Link
                             :href="route('dashboard')"
@@ -135,7 +138,7 @@ const features = [
                     >
                         Your listening,
                         <span
-                            class="bg-gradient-to-r from-brand-300 via-brand-400 to-emerald-300 bg-clip-text text-transparent"
+                            class="bg-gradient-to-r from-brand-300 via-brand-400 to-emerald-300 bg-clip-text text-transparent light:to-emerald-600"
                         >
                             quantified.
                         </span>

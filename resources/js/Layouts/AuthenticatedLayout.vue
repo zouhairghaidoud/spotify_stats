@@ -5,6 +5,7 @@ import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
 import NavLink from '@/Components/NavLink.vue';
 import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
+import ThemeToggle from '@/Components/ThemeToggle.vue';
 import { Link, usePage } from '@inertiajs/vue3';
 
 const page = usePage();
@@ -81,6 +82,8 @@ const initials = computed(() => {
                             Personal analytics
                         </span>
 
+                        <ThemeToggle />
+
                         <Dropdown align="right" width="48">
                             <template #trigger>
                                 <button
@@ -148,7 +151,9 @@ const initials = computed(() => {
                     </div>
 
                     <!-- Mobile menu button -->
-                    <div class="-me-2 flex items-center sm:hidden">
+                    <div class="-me-2 flex items-center gap-2 sm:hidden">
+                        <ThemeToggle />
+
                         <button
                             type="button"
                             @click="
@@ -275,7 +280,7 @@ const initials = computed(() => {
         <main class="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <div
                 v-if="flash.success"
-                class="mb-6 flex items-start gap-3 rounded-xl border border-brand-500/20 bg-brand-500/10 px-4 py-3 text-sm font-medium text-brand-200"
+                class="mb-6 flex items-start gap-3 rounded-xl border border-brand-500/20 bg-brand-500/10 px-4 py-3 text-sm font-medium text-brand-300"
             >
                 <svg
                     class="mt-0.5 h-4 w-4 shrink-0"
