@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PlaylistController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicRecapController;
@@ -31,6 +32,10 @@ Route::get('/analytics', AnalyticsController::class)
 Route::get('/recap', [RecapController::class, 'show'])
     ->middleware(['auth', 'verified'])
     ->name('recap');
+
+Route::get('/now-playing', NowPlayingController::class)
+    ->middleware(['auth', 'verified'])
+    ->name('now-playing');
 
 Route::get('/playlists', [PlaylistController::class, 'index'])
     ->middleware(['auth', 'verified'])

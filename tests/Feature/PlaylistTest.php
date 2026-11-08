@@ -102,23 +102,26 @@ it('creates a private playlist from top tracks', function () {
 
     Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/playlists/playlist-1/items')
         && $request['uris'] === ['spotify:track:track-a', 'spotify:track:track-b']);
-});
-
-it('adds top tracks to a playlist in batches of one hundred', function () {
-    $user = User::factory()->connectedToSpotify()->withPlaylistScope()->create();
-
-    $items = collect(range(1, 150))
-        ->map(fn (int $index): array => [
-            'id' => 'track-'.$index,
-            'uri' => 'spotify:track:track-'.$index,
-        ])
-        ->all();
-
-    fakePlaylistApi($items);
 
     $this->actingAs($user)
-        ->post('/playlists/top-tracks', ['range' => 'long_term'])
-        ->assertRedirect(route('playlists.index'));
+        ->get('/playlists')
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('createdPlaylist.id', 'playlist-1')
+            ->where('createdPlaylist.track_count', 2));
+});
+
+it('adds tracks to a playlist in batches of one hundred', function () {
+    $user = User::factory()->connectedToSpotify()->withPlaylistScope()->create();
+
+    Http::fake([
+        'api.spotify.com/v1/playlists/*/items' => Http::response(['snapshot_id' => 'snapshot'], 201),
+    ]);
+
+    $uris = collect(range(1, 150))
+        ->map(fn (int $index): string => 'spotify:track:track-'.$index)
+        ->all();
+
+    app(SpotifyService::class)->addTracksToPlaylist($user, 'playlist-1', $uris);
 
     $batches = Http::recorded(fn (Request $request): bool => str_ends_with($request->url(), '/items'))
         ->map(fn (array $pair): int => count($pair[0]['uris']))

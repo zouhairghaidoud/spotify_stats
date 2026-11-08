@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const props = defineProps({
     connected: {
@@ -44,12 +44,32 @@ const ranges = [
     { value: 'long_term', label: '1 year' },
 ];
 
+const playback = ref(props.currentlyPlaying);
+const receivedAt = ref(Date.now());
+const clock = ref(Date.now());
+
 const currentTrack = computed(() => {
-    if (props.currentlyPlaying?.item?.type !== 'track') {
+    if (playback.value?.item?.type !== 'track') {
         return null;
     }
 
-    return props.currentlyPlaying.item;
+    return playback.value.item;
+});
+
+const positionMs = computed(() => {
+    if (!currentTrack.value) {
+        return 0;
+    }
+
+    const base = playback.value?.progress_ms ?? 0;
+    const elapsed = playback.value?.is_playing
+        ? Math.max(0, clock.value - receivedAt.value)
+        : 0;
+
+    return Math.min(
+        currentTrack.value.duration_ms || 0,
+        Math.max(0, base + elapsed),
+    );
 });
 
 const progress = computed(() => {
@@ -59,12 +79,67 @@ const progress = computed(() => {
 
     return Math.min(
         100,
-        Math.round(
-            ((props.currentlyPlaying.progress_ms ?? 0) /
-                (currentTrack.value.duration_ms || 1)) *
-                100,
-        ),
+        Math.round((positionMs.value / (currentTrack.value.duration_ms || 1)) * 100),
     );
+});
+
+watch(
+    () => props.currentlyPlaying,
+    (value) => {
+        playback.value = value;
+        receivedAt.value = Date.now();
+    },
+);
+
+let pollTimer = null;
+let tickTimer = null;
+
+async function refreshNowPlaying() {
+    if (!props.connected || document.visibilityState === 'hidden') {
+        return;
+    }
+
+    try {
+        const response = await fetch(route('now-playing'), {
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+        });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const payload = await response.json();
+
+        playback.value = payload?.item ? payload : null;
+        receivedAt.value = payload?.fetched_at
+            ? new Date(payload.fetched_at).getTime()
+            : Date.now();
+        clock.value = Date.now();
+    } catch {
+        // Offline or a server hiccup: keep the last known track on screen.
+    }
+}
+
+function handleVisibilityChange() {
+    if (document.visibilityState !== 'visible') {
+        return;
+    }
+
+    clock.value = Date.now();
+    refreshNowPlaying();
+}
+
+onMounted(() => {
+    tickTimer = window.setInterval(() => (clock.value = Date.now()), 1000);
+    pollTimer = window.setInterval(refreshNowPlaying, 5000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+});
+
+onBeforeUnmount(() => {
+    window.clearInterval(tickTimer);
+    window.clearInterval(pollTimer);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
 function setRange(range) {
@@ -320,9 +395,10 @@ function formatPlayedAt(value) {
                                 class="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-brand-300"
                             >
                                 <span
-                                    class="inline-flex h-2 w-2 animate-pulse rounded-full bg-brand-400"
+                                    class="inline-flex h-2 w-2 rounded-full bg-brand-400"
+                                    :class="{ 'animate-pulse': playback?.is_playing !== false }"
                                 ></span>
-                                Now playing
+                                {{ playback?.is_playing === false ? 'Paused' : 'Now playing' }}
                             </p>
                             <p
                                 class="mt-1.5 truncate text-lg font-bold text-white sm:text-xl"
@@ -348,7 +424,7 @@ function formatPlayedAt(value) {
                                 <span
                                     class="shrink-0 text-xs tabular-nums text-ink-400"
                                 >
-                                    {{ formatDuration(currentlyPlaying.progress_ms) }}
+                                    {{ formatDuration(positionMs) }}
                                     /
                                     {{ formatDuration(currentTrack.duration_ms) }}
                                 </span>

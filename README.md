@@ -4,7 +4,7 @@ Personal Spotify listening analytics. Connect Spotify once and the app collects 
 history, caches your top tracks and artists, and turns the stored plays into analytics that need no
 Spotify connection to render.
 
-- **Dashboard** — now playing, top tracks, top artists (4 weeks / 6 months / 1 year), recently played.
+- **Dashboard** — live now playing (polled every five seconds), top tracks, top artists (4 weeks / 6 months / 1 year), recently played.
 - **Analytics** — listening time, play counts, unique tracks and artists, average track length, top
   genres, a weekday × hour heatmap, discovery rate, and listening streaks.
 - **Charts** — a 12-week trend line per top artist with weekly rank movement, and a side-by-side
@@ -12,6 +12,8 @@ Spotify connection to render.
 - **Recap** — a wrapped-style `/recap` story with your top five tracks, top artist, minutes, genres,
   and peak listening hour, exportable as a PNG from the browser.
 - **Sharing** — an optional tokenized `/u/{token}` page with a server-rendered Open Graph card.
+- **Playlists** — create a private playlist from your current top tracks or from forgotten favorites you
+  played repeatedly but have not touched in two weeks.
 - **Stored history** — a `streams` table of every play collected from `/me/player/recently-played`.
 - **Resilience** — per-user, per-range caching with stale-data fallback when Spotify is slow, down,
   or rate limiting.
@@ -33,10 +35,11 @@ Spotify connection to render.
 11. [Commands and schedule](#commands-and-schedule)
 12. [Analytics definitions](#analytics-definitions)
 13. [Recap and sharing](#recap-and-sharing)
-14. [Timezones](#timezones)
-15. [Testing](#testing)
-16. [Known limitations](#known-limitations)
-17. [Project structure](#project-structure)
+14. [Playlist tools](#playlist-tools)
+15. [Timezones](#timezones)
+16. [Testing](#testing)
+17. [Known limitations](#known-limitations)
+18. [Project structure](#project-structure)
 
 ---
 
@@ -59,10 +62,11 @@ user-read-email
 user-top-read
 user-read-recently-played
 user-read-currently-playing
+playlist-modify-private
 ```
 
-All access is read-only. Tokens are stored encrypted and can be revoked from the Spotify account
-page at any time.
+Reading is all the dashboard needs; the playlist scope is used only when you press one of the create
+buttons. Tokens are stored encrypted and can be revoked from the Spotify account page at any time.
 
 ---
 
@@ -115,7 +119,7 @@ with `npm run build` or restart `npm run dev`.
    **User Management**.
 4. Copy the **Client ID** and **Client Secret** into `.env`.
 
-No additional scopes are requested by the app; Spotify will show exactly the four listed above.
+No additional scopes are requested by the app; Spotify will show exactly the scopes listed above.
 
 ---
 
@@ -199,12 +203,14 @@ missing or expires within five minutes, and every API call retries once after a 
 | `range` | `short_term`, `medium_term`, or `long_term` (default `short_term`) |
 | `spotifyError` | Message when Spotify could not be read and no cached data exists |
 | `spotifyStale` | `true` when any section is being served from stale cache |
-| `currentlyPlaying` | Live `/me/player/currently-playing` payload (always fetched live) |
+| `currentlyPlaying` | Initial `/me/player/currently-playing` payload |
 | `topTracks` / `topArtists` | Cached items for the selected range |
 | `recentlyPlayed` | Cached recently played items |
 
-Top tracks, top artists, and recently played come from the cache service; now playing is a live call.
-The page shows an amber banner when data is stale.
+Top tracks, top artists, and recently played come from the cache service. The now-playing card starts
+from the dashboard payload and then polls `GET /now-playing` every five seconds (skipped while the tab
+is hidden), advancing the progress bar locally between polls and switching to a paused state when
+Spotify reports `is_playing: false`. The page shows an amber banner when data is stale.
 
 ### 3. Listening history sync
 
@@ -267,6 +273,15 @@ Sharing is opt-in:
 an `og` prop, so ordinary pages stay untouched. The recap page can also be exported client-side with
 `html-to-image` (`toPng` at 2× pixel ratio), which needs no server round trip.
 
+### 6. Playlist tools
+
+`GET /playlists` lists forgotten favorites from the stored plays and offers two write actions: a
+playlist from the cached top tracks for a chosen range, and a playlist from the forgotten list. Both
+create a private playlist and add the tracks in batches; neither action runs during a normal page
+load. The OAuth callback stores the scopes Spotify granted in `users.spotify_scopes`, and
+`User::hasPlaylistScope()` gates the buttons so a connection made before the scope existed asks for a
+reconnect instead of failing with a `403`.
+
 ---
 
 ## Data model
@@ -282,6 +297,7 @@ Standard Laravel user columns plus Spotify link data:
 | `spotify_access_token` | Encrypted, hidden |
 | `spotify_refresh_token` | Encrypted, hidden |
 | `spotify_token_expires_at` | Access token expiry |
+| `spotify_scopes` | Space-separated scopes granted at the last authorization |
 | `recap_token` | 48-character public recap token, unique, nullable |
 | `recap_timezone` | IANA timezone captured when the recap link was created |
 
@@ -360,6 +376,10 @@ stock Laravel migrations.
 | GET | `/dashboard` | `dashboard` | `auth`, `verified` | Live stats and connect prompt |
 | GET | `/analytics` | `analytics` | `auth`, `verified` | Stored-data analytics |
 | GET | `/recap` | `recap` | `auth`, `verified` | Wrapped-style recap with share controls |
+| GET | `/now-playing` | `now-playing` | `auth`, `verified` | Compact current playback JSON for polling |
+| GET | `/playlists` | `playlists.index` | `auth`, `verified` | Playlist tools and forgotten favorites |
+| POST | `/playlists/top-tracks` | `playlists.top-tracks` | `auth`, `verified` | Create a playlist from top tracks |
+| POST | `/playlists/forgotten` | `playlists.forgotten` | `auth`, `verified` | Create a playlist from forgotten favorites |
 | POST | `/recap/share` | `recap.share` | `auth` | Create (or keep) the public link |
 | DELETE | `/recap/share` | `recap.revoke` | `auth` | Revoke the public link |
 | GET | `/u/{token}` | `recap.public` | web | Public read-only recap |
@@ -392,9 +412,13 @@ Thin Spotify Web API client with token management.
 | `getTopArtists(User $user, string $range, int $limit)` | `/me/top/artists`, limit capped at 50 |
 | `getRecentlyPlayed(User $user, int $limit)` | `/me/player/recently-played` |
 | `getCurrentlyPlaying(User $user)` | `/me/player/currently-playing`, `null` on 204 |
+| `createPlaylist(User $user, string $name, string $description)` | `POST /me/playlists`, always private |
+| `addTracksToPlaylist(User $user, string $playlistId, array $uris)` | `POST /playlists/{id}/items`, 100 URIs per request |
 
 `range` values other than the three Spotify identifiers fall back to `short_term`. A `401` is retried
-once after a token refresh.
+once after a token refresh, including on write requests. `createPlaylist()` and
+`addTracksToPlaylist()` use the endpoints that replaced Spotify's removed February 2026 playlist
+routes.
 
 ### `App\Services\SpotifyCacheService`
 
@@ -522,6 +546,19 @@ plays divided by every play with an attributed artist. `peak_hour` sums the heat
   Liberation Sans) and falls back to GD's built-in bitmap font when none can be found. It throws a
   `RuntimeException` when the GD extension is unavailable.
 
+### `App\Services\PlaylistService`
+
+- `createFromTopTracks(User $user, string $range): array` — reads the cached top tracks for the range,
+  keeps up to 30 unique track URIs, creates a private playlist, and appends the tracks.
+- `createFromForgottenFavorites(User $user): array` — the same flow using the forgotten list.
+- `forgottenFavorites(User $user, int $limit = 30): array` — groups `streams` by track, keeps tracks
+  with at least two plays whose most recent play is older than 14 days, orders by play count, and
+  joins `tracks` for title, artist, album, cover, and duration.
+
+Constants: `TOP_TRACKS = 30`, `FORGOTTEN_LIMIT = 30`, `FORGOTTEN_DAYS = 14`,
+`FORGOTTEN_MIN_PLAYS = 2`. Each create method returns
+`['id' => …, 'name' => …, 'url' => …, 'track_count' => …]`.
+
 ---
 
 ## Commands and schedule
@@ -595,6 +632,34 @@ Inertia SSR is disabled.
 
 ---
 
+## Playlist tools
+
+The `/playlists` page turns listening data into private playlists:
+
+| Action | Source | Selection |
+| --- | --- | --- |
+| Top tracks | Cached `/me/top/tracks` for the chosen range | Up to 30 unique tracks |
+| Forgotten favorites | Stored `streams` | Played at least twice, no play for 14 days, up to 30 tracks |
+
+**Forgotten favorites.** The definition is deliberately strict: a track needs two or more stored plays
+and its *most recent* play must be older than 14 days. Using `MAX(played_at)` means one recent listen
+removes a track even if it has months of history behind it. After a fresh install the list stays empty
+until enough history accumulates, and the page explains that instead of showing a dead button.
+
+**Playlist creation.** Both actions create an empty playlist with `POST /me/playlists` and
+`public: false`, then append tracks with `POST /playlists/{id}/items` in batches of 100. Spotify's
+February 2026 Web API changes removed `POST /users/{user_id}/playlists` and
+`POST /playlists/{id}/tracks`; the app uses the replacement endpoints. The created playlist is
+flashed back to the page with an **Open in Spotify** link.
+
+**Permissions.** Creating private playlists requires the `playlist-modify-private` scope, which is
+requested during OAuth and stored in `users.spotify_scopes` when Spotify returns it. Connections made
+before this scope was added have no stored scope; the page shows a **Reconnect Spotify** prompt and
+`User::hasPlaylistScope()` blocks the write actions server-side. A `403` or `429` from Spotify is
+reported as a flash message rather than a stack trace.
+
+---
+
 ## Timezones
 
 Heatmap cells and streaks depend on the listener's local day, not UTC. On boot the front end writes
@@ -641,6 +706,8 @@ Coverage highlights:
 | `tests/Feature/StreamSyncTest.php` | Play persistence, deduplication, invalid items, command sync, metadata backfill, dashboard sync throttling |
 | `tests/Feature/ListeningAnalyticsTest.php` | Overview totals, genre weighting, timezone heatmap, streaks, discovery, weekly trends and rank movement, window comparison, empty state, route props, timezone cookie, metadata capture |
 | `tests/Feature/RecapTest.php` | Recap data and empty state, share/revoke, public page and OG tags, PNG signature, track metadata snapshot |
+| `tests/Feature/PlaylistTest.php` | Scope request and storage, top-track and forgotten playlists, 100-URI batching, forgotten selection rules, page props, missing-scope guard, Spotify `403` |
+| `tests/Feature/NowPlayingTest.php` | Polling payload shape, no playback, Spotify failure, disconnected user, authentication |
 | `tests/Feature/Auth/*`, `ProfileTest.php` | Standard auth and profile flows |
 
 Format PHP before finishing changes:
@@ -663,8 +730,13 @@ vendor/bin/pint --dirty --format agent
   minutes keeps this unlikely.
 - **Metadata backfill is windowed.** Plays stored before the analytics columns existed only get
   `duration_ms` and `artist_id` if they are still inside that 50-play window.
-- **Now playing is always live.** It is deliberately not cached, so a dashboard request makes one
-  Spotify call when the token is valid.
+- **Now playing polls.** The dashboard asks `GET /now-playing` every five seconds while the tab is
+  visible, and pauses polling in the background. The endpoint is not cached, so each open dashboard
+  makes one Spotify call per poll; the progress bar is interpolated between responses.
+- **Playlists need new consent.** Existing Spotify connections do not have
+  `playlist-modify-private`; the page asks for a reconnect before the create buttons work.
+- **Forgotten favorites need history.** With only a few days of stored plays the list is usually
+  empty; it needs tracks with at least two plays that have gone two weeks without a listen.
 - **Artists are the primary artist.** Collaborations only credit `track.artists[0]` for unique-artist,
   discovery, and genre figures.
 - **The scheduler must be running.** Without `schedule:work` or the cron entry, history only grows when
@@ -693,6 +765,8 @@ app/
     Controllers/RecapController.php         /recap, share + revoke
     Controllers/PublicRecapController.php   /u/{token}, OG image
     Controllers/DashboardController.php     /dashboard, fallback sync
+    Controllers/NowPlayingController.php    /now-playing polling payload
+    Controllers/PlaylistController.php      /playlists, create actions
     Controllers/SpotifyController.php       OAuth redirect + callback
     Controllers/Concerns/ResolvesTimezone.php  Query/cookie timezone resolution
     Middleware/HandleInertiaRequests.php    Shared Inertia props (auth, flash)
@@ -705,6 +779,7 @@ app/
     ListeningAnalyticsService.php           All analytics aggregates
     RecapService.php                        Recap story data
     RecapImageService.php                   GD Open Graph card
+    PlaylistService.php                     Top-track and forgotten-favorite playlists
     SpotifyCacheService.php                 TTL cache + stale fallback
     SpotifyService.php                      Spotify Web API client
     StreamSyncService.php                   Persist plays, backfill, track + artist snapshots
@@ -715,24 +790,29 @@ database/migrations/
   ..._create_tracks_table.php
   ..._add_analytics_columns_to_streams_table.php
   ..._add_recap_to_users_table.php
+  ..._add_spotify_scopes_to_users_table.php
 
 resources/js/
   app.js                                    Inertia boot + timezone cookie
-  Layouts/AuthenticatedLayout.vue           Navigation (Dashboard, Analytics, Recap, Profile)
+  Layouts/AuthenticatedLayout.vue           Navigation (Dashboard, Analytics, Recap, Playlists, Profile)
   Components/Chart.vue                      Chart.js wrapper (line and bar)
   Components/RecapStory.vue                 Recap sections, export, share controls
   chartTheme.js                             Shared chart palette, grid, and tooltip styling
   pages/Dashboard.vue                       Live Spotify stats
   pages/Analytics.vue                       Stored-data analytics
   pages/Recap.vue                           Owner and public recap shell
+  pages/Playlists.vue                       Playlist tools and forgotten favorites
   pages/Welcome.vue                         Landing page
 
 routes/
-  web.php                                   Dashboard, analytics, recap, OAuth, profile
+  web.php                                   Dashboard, analytics, recap, playlists, OAuth, profile
   console.php                               spotify:sync schedule
 
 tests/Feature/
   SpotifyCacheTest.php
   StreamSyncTest.php
   ListeningAnalyticsTest.php
+  RecapTest.php
+  PlaylistTest.php
+  NowPlayingTest.php
 ```
