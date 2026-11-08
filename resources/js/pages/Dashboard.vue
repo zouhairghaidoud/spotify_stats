@@ -44,6 +44,27 @@ const ranges = [
     { value: 'long_term', label: '1 year' },
 ];
 
+const PREVIEW_TRACKS = 5;
+const PREVIEW_RECENT = 5;
+
+const showAllTracks = ref(false);
+const showAllArtists = ref(false);
+const showAllRecent = ref(false);
+
+const visibleTopTracks = computed(() =>
+    showAllTracks.value ? props.topTracks : props.topTracks.slice(0, PREVIEW_TRACKS),
+);
+
+const visibleTopArtists = computed(() =>
+    showAllArtists.value ? props.topArtists : props.topArtists.slice(0, PREVIEW_TRACKS),
+);
+
+const visibleRecent = computed(() =>
+    showAllRecent.value
+        ? props.recentlyPlayed
+        : props.recentlyPlayed.slice(0, PREVIEW_RECENT),
+);
+
 const playback = ref(props.currentlyPlaying);
 const receivedAt = ref(Date.now());
 const clock = ref(Date.now());
@@ -171,6 +192,26 @@ function formatDuration(milliseconds) {
 }
 
 function formatPlayedAt(value) {
+    const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
+    const absolute = Math.abs(seconds);
+    const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+    if (absolute < 60) {
+        return formatter.format(seconds, 'second');
+    }
+
+    if (absolute < 3600) {
+        return formatter.format(Math.round(seconds / 60), 'minute');
+    }
+
+    if (absolute < 86400) {
+        return formatter.format(Math.round(seconds / 3600), 'hour');
+    }
+
+    return formatter.format(Math.round(seconds / 86400), 'day');
+}
+
+function formatPlayedAtAbsolute(value) {
     return new Intl.DateTimeFormat(undefined, {
         dateStyle: 'medium',
         timeStyle: 'short',
@@ -221,7 +262,7 @@ function formatPlayedAt(value) {
             </div>
         </template>
 
-        <div class="space-y-6">
+        <div class="space-y-5">
             <div
                 v-if="spotifyError"
                 class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-200"
@@ -254,7 +295,7 @@ function formatPlayedAt(value) {
             <!-- Not connected -->
             <section
                 v-if="!connected"
-                class="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-ink-900/60 px-6 py-14 text-center shadow-card sm:px-12 sm:py-20"
+                class="relative overflow-hidden rounded-3xl border border-white/[0.06] bg-ink-900/60 px-6 py-10 text-center shadow-card sm:px-12 sm:py-14"
             >
                 <div
                     aria-hidden="true"
@@ -335,54 +376,54 @@ function formatPlayedAt(value) {
 
             <template v-else>
                 <!-- Time range filter -->
-                <div
-                    class="flex flex-wrap items-center gap-2 rounded-2xl border border-white/[0.06] bg-ink-900/70 p-2"
-                >
-                    <span
-                        class="px-3 text-xs font-semibold uppercase tracking-wide text-ink-500"
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div
+                        class="inline-flex rounded-xl border border-white/[0.06] bg-ink-900/70 p-1"
                     >
-                        Time range
-                    </span>
+                        <button
+                            v-for="option in ranges"
+                            :key="option.value"
+                            type="button"
+                            class="rounded-lg px-3.5 py-1.5 text-xs font-semibold transition"
+                            :class="
+                                range === option.value
+                                    ? 'bg-brand-500 text-ink-950 shadow-lg shadow-brand-500/20'
+                                    : 'text-ink-300 hover:bg-white/5 hover:text-white'
+                            "
+                            @click="setRange(option.value)"
+                        >
+                            {{ option.label }}
+                        </button>
+                    </div>
 
-                    <button
-                        v-for="option in ranges"
-                        :key="option.value"
-                        type="button"
-                        class="rounded-xl px-4 py-2 text-sm font-semibold transition"
-                        :class="
-                            range === option.value
-                                ? 'bg-brand-500 text-ink-950 shadow-lg shadow-brand-500/20'
-                                : 'text-ink-300 hover:bg-white/5 hover:text-white'
-                        "
-                        @click="setRange(option.value)"
-                    >
-                        {{ option.label }}
-                    </button>
+                    <p class="text-xs text-ink-500">
+                        Now playing updates automatically
+                    </p>
                 </div>
 
                 <!-- Currently playing -->
                 <section
                     v-if="currentTrack"
-                    class="relative overflow-hidden rounded-2xl border border-brand-500/20 bg-gradient-to-br from-brand-500/15 via-ink-900 to-ink-900 p-5 shadow-card sm:p-6"
+                    class="relative overflow-hidden rounded-2xl border border-brand-500/20 bg-gradient-to-br from-brand-500/15 via-ink-900 to-ink-900 p-4 shadow-card sm:p-5"
                 >
                     <div
                         aria-hidden="true"
                         class="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-brand-500/20 blur-3xl"
                     ></div>
 
-                    <div class="relative flex items-center gap-5">
+                    <div class="relative flex items-center gap-4">
                         <img
                             v-if="coverUrl(currentTrack.album?.images)"
                             :src="coverUrl(currentTrack.album?.images)"
                             :alt="currentTrack.album?.name"
-                            class="h-20 w-20 rounded-xl object-cover shadow-2xl shadow-black/50 sm:h-24 sm:w-24"
+                            class="h-16 w-16 rounded-xl object-cover shadow-2xl shadow-black/50 sm:h-20 sm:w-20"
                         />
                         <div
                             v-else
-                            class="flex h-20 w-20 items-center justify-center rounded-xl bg-ink-800 text-ink-500 sm:h-24 sm:w-24"
+                            class="flex h-16 w-16 items-center justify-center rounded-xl bg-ink-800 text-ink-500 sm:h-20 sm:w-20"
                         >
                             <svg
-                                class="h-8 w-8"
+                                class="h-7 w-7"
                                 viewBox="0 0 24 24"
                                 fill="currentColor"
                             >
@@ -401,7 +442,7 @@ function formatPlayedAt(value) {
                                 {{ playback?.is_playing === false ? 'Paused' : 'Now playing' }}
                             </p>
                             <p
-                                class="mt-1.5 truncate text-lg font-bold text-white sm:text-xl"
+                                class="mt-1 truncate text-base font-bold text-white sm:text-lg"
                             >
                                 {{ currentTrack.name }}
                             </p>
@@ -412,7 +453,7 @@ function formatPlayedAt(value) {
                                 </span>
                             </p>
 
-                            <div class="mt-4 flex items-center gap-3">
+                            <div class="mt-3 flex items-center gap-3">
                                 <div
                                     class="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10"
                                 >
@@ -433,12 +474,12 @@ function formatPlayedAt(value) {
                     </div>
                 </section>
 
-                <!-- Top tracks + top artists -->
-                <div class="grid gap-6 lg:grid-cols-2">
+                <!-- Top tracks, top artists, recently played -->
+                <div class="grid gap-5 lg:grid-cols-3">
                     <!-- Top tracks -->
                     <section class="surface-card overflow-hidden">
                         <header
-                            class="flex items-center justify-between border-b border-white/[0.06] px-5 py-4"
+                            class="flex items-center justify-between border-b border-white/[0.06] px-4 py-3"
                         >
                             <div>
                                 <h2 class="text-base font-bold text-white">
@@ -458,11 +499,12 @@ function formatPlayedAt(value) {
                         <ol
                             v-if="topTracks.length"
                             class="divide-y divide-white/[0.04]"
+                            :class="showAllTracks ? 'max-h-[26rem] overflow-y-auto' : ''"
                         >
                             <li
-                                v-for="(track, index) in topTracks"
+                                v-for="(track, index) in visibleTopTracks"
                                 :key="track.id"
-                                class="group flex items-center gap-4 px-5 py-3 transition hover:bg-white/[0.03]"
+                                class="group flex items-center gap-3 px-4 py-2.5 transition hover:bg-white/[0.03]"
                             >
                                 <span
                                     class="w-6 shrink-0 text-right text-sm font-bold tabular-nums text-ink-500 group-hover:text-brand-400"
@@ -474,12 +516,12 @@ function formatPlayedAt(value) {
                                     v-if="coverUrl(track.album?.images)"
                                     :src="coverUrl(track.album?.images)"
                                     :alt="track.album?.name"
-                                    class="h-11 w-11 rounded-lg object-cover ring-1 ring-white/5"
+                                    class="h-10 w-10 rounded-lg object-cover ring-1 ring-white/5"
                                     loading="lazy"
                                 />
                                 <div
                                     v-else
-                                    class="flex h-11 w-11 items-center justify-center rounded-lg bg-ink-800 text-ink-500"
+                                    class="flex h-10 w-10 items-center justify-center rounded-lg bg-ink-800 text-ink-500"
                                 >
                                     <svg
                                         class="h-5 w-5"
@@ -515,16 +557,29 @@ function formatPlayedAt(value) {
 
                         <p
                             v-else
-                            class="px-5 py-12 text-center text-sm text-ink-400"
+                            class="px-4 py-8 text-center text-sm text-ink-400"
                         >
                             No top tracks for this time range yet.
                         </p>
+
+                        <button
+                            v-if="topTracks.length > PREVIEW_TRACKS"
+                            type="button"
+                            class="w-full border-t border-white/[0.06] px-4 py-2.5 text-left text-xs font-semibold text-ink-400 transition hover:bg-white/[0.03] hover:text-white"
+                            @click="showAllTracks = !showAllTracks"
+                        >
+                            {{
+                                showAllTracks
+                                    ? 'Show less'
+                                    : `Show all ${topTracks.length}`
+                            }}
+                        </button>
                     </section>
 
                     <!-- Top artists -->
                     <section class="surface-card overflow-hidden">
                         <header
-                            class="flex items-center justify-between border-b border-white/[0.06] px-5 py-4"
+                            class="flex items-center justify-between border-b border-white/[0.06] px-4 py-3"
                         >
                             <div>
                                 <h2 class="text-base font-bold text-white">
@@ -544,11 +599,12 @@ function formatPlayedAt(value) {
                         <ol
                             v-if="topArtists.length"
                             class="divide-y divide-white/[0.04]"
+                            :class="showAllArtists ? 'max-h-[26rem] overflow-y-auto' : ''"
                         >
                             <li
-                                v-for="(artist, index) in topArtists"
+                                v-for="(artist, index) in visibleTopArtists"
                                 :key="artist.id"
-                                class="group flex items-center gap-4 px-5 py-3 transition hover:bg-white/[0.03]"
+                                class="group flex items-center gap-3 px-4 py-2.5 transition hover:bg-white/[0.03]"
                             >
                                 <span
                                     class="w-6 shrink-0 text-right text-sm font-bold tabular-nums text-ink-500 group-hover:text-brand-400"
@@ -560,12 +616,12 @@ function formatPlayedAt(value) {
                                     v-if="coverUrl(artist.images)"
                                     :src="coverUrl(artist.images)"
                                     :alt="artist.name"
-                                    class="h-11 w-11 rounded-full object-cover ring-1 ring-white/5"
+                                    class="h-10 w-10 rounded-full object-cover ring-1 ring-white/5"
                                     loading="lazy"
                                 />
                                 <div
                                     v-else
-                                    class="flex h-11 w-11 items-center justify-center rounded-full bg-ink-800 text-ink-500"
+                                    class="flex h-10 w-10 items-center justify-center rounded-full bg-ink-800 text-ink-500"
                                 >
                                     <svg
                                         class="h-5 w-5"
@@ -601,17 +657,28 @@ function formatPlayedAt(value) {
 
                         <p
                             v-else
-                            class="px-5 py-12 text-center text-sm text-ink-400"
+                            class="px-4 py-8 text-center text-sm text-ink-400"
                         >
                             No top artists for this time range yet.
                         </p>
-                    </section>
-                </div>
 
+                        <button
+                            v-if="topArtists.length > PREVIEW_TRACKS"
+                            type="button"
+                            class="w-full border-t border-white/[0.06] px-4 py-2.5 text-left text-xs font-semibold text-ink-400 transition hover:bg-white/[0.03] hover:text-white"
+                            @click="showAllArtists = !showAllArtists"
+                        >
+                            {{
+                                showAllArtists
+                                    ? 'Show less'
+                                    : `Show all ${topArtists.length}`
+                            }}
+                        </button>
+                    </section>
                 <!-- Recently played -->
                 <section class="surface-card overflow-hidden">
                     <header
-                        class="flex items-center justify-between border-b border-white/[0.06] px-5 py-4"
+                        class="flex items-center justify-between border-b border-white/[0.06] px-4 py-3"
                     >
                         <div>
                             <h2 class="text-base font-bold text-white">
@@ -626,11 +693,12 @@ function formatPlayedAt(value) {
                     <ol
                         v-if="recentlyPlayed.length"
                         class="divide-y divide-white/[0.04]"
+                        :class="showAllRecent ? 'max-h-[26rem] overflow-y-auto' : ''"
                     >
                         <li
-                            v-for="(item, index) in recentlyPlayed"
+                            v-for="(item, index) in visibleRecent"
                             :key="`${item.played_at}-${index}`"
-                            class="flex items-center gap-4 px-5 py-3 transition hover:bg-white/[0.03]"
+                            class="flex items-center gap-3 px-4 py-2.5 transition hover:bg-white/[0.03]"
                         >
                             <img
                                 v-if="coverUrl(item.track?.album?.images)"
@@ -667,6 +735,7 @@ function formatPlayedAt(value) {
 
                             <span
                                 class="shrink-0 text-xs tabular-nums text-ink-500"
+                                :title="formatPlayedAtAbsolute(item.played_at)"
                             >
                                 {{ formatPlayedAt(item.played_at) }}
                             </span>
@@ -675,11 +744,25 @@ function formatPlayedAt(value) {
 
                     <p
                         v-else
-                        class="px-5 py-12 text-center text-sm text-ink-400"
+                        class="px-4 py-8 text-center text-sm text-ink-400"
                     >
                         No recently played tracks found.
                     </p>
+
+                    <button
+                        v-if="recentlyPlayed.length > PREVIEW_RECENT"
+                        type="button"
+                        class="w-full border-t border-white/[0.06] px-4 py-2.5 text-left text-xs font-semibold text-ink-400 transition hover:bg-white/[0.03] hover:text-white"
+                        @click="showAllRecent = !showAllRecent"
+                    >
+                        {{
+                            showAllRecent
+                                ? 'Show less'
+                                : `Show all ${recentlyPlayed.length}`
+                        }}
+                    </button>
                 </section>
+                </div>
             </template>
         </div>
     </AuthenticatedLayout>
