@@ -4,7 +4,7 @@ import InputError from '@/Components/InputError.vue';
 import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
-import { Head, useForm } from '@inertiajs/vue3';
+import { Head, Link, useForm } from '@inertiajs/vue3';
 
 defineProps({
     status: {
@@ -25,15 +25,19 @@ const submit = () => {
     <GuestLayout>
         <Head title="Forgot Password" />
 
-        <div class="mb-4 text-sm text-gray-600 dark:text-gray-400">
-            Forgot your password? No problem. Just let us know your email
-            address and we will email you a password reset link that will allow
-            you to choose a new one.
+        <div class="mb-6">
+            <h1 class="text-xl font-bold tracking-tight text-white">
+                Reset your password
+            </h1>
+            <p class="mt-1 text-sm leading-relaxed text-ink-400">
+                Enter the email address you registered with and we will send
+                you a link to choose a new password.
+            </p>
         </div>
 
         <div
             v-if="status"
-            class="mb-4 text-sm font-medium text-green-600 dark:text-green-400"
+            class="mb-4 rounded-xl border border-brand-500/20 bg-brand-500/10 px-3 py-2 text-sm font-medium text-brand-300"
         >
             {{ status }}
         </div>
@@ -45,7 +49,7 @@ const submit = () => {
                 <TextInput
                     id="email"
                     type="email"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full"
                     v-model="form.email"
                     required
                     autofocus
@@ -55,14 +59,23 @@ const submit = () => {
                 <InputError class="mt-2" :message="form.errors.email" />
             </div>
 
-            <div class="mt-4 flex items-center justify-end">
-                <PrimaryButton
-                    :class="{ 'opacity-25': form.processing }"
-                    :disabled="form.processing"
-                >
-                    Email Password Reset Link
-                </PrimaryButton>
-            </div>
+            <PrimaryButton
+                class="mt-6 w-full"
+                :class="{ 'opacity-40': form.processing }"
+                :disabled="form.processing"
+            >
+                Email password reset link
+            </PrimaryButton>
         </form>
+
+        <p class="mt-6 text-center text-sm text-ink-400">
+            Remembered it?
+            <Link
+                :href="route('login')"
+                class="font-semibold text-brand-400 transition hover:text-brand-300"
+            >
+                Back to log in
+            </Link>
+        </p>
     </GuestLayout>
 </template>

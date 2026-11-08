@@ -25,36 +25,43 @@ const verificationLinkSent = computed(
     <GuestLayout>
         <Head title="Email Verification" />
 
-        <div class="mb-4 text-sm text-gray-600 dark:text-gray-400">
-            Thanks for signing up! Before getting started, could you verify your
-            email address by clicking on the link we just emailed to you? If you
-            didn't receive the email, we will gladly send you another.
+        <div class="mb-6">
+            <h1 class="text-xl font-bold tracking-tight text-white">
+                Verify your email
+            </h1>
+            <p class="mt-1 text-sm leading-relaxed text-ink-400">
+                Thanks for signing up. Before getting started, please verify
+                your email address by clicking the link we just emailed you. If
+                you did not receive it, we can send another.
+            </p>
         </div>
 
         <div
-            class="mb-4 text-sm font-medium text-green-600 dark:text-green-400"
             v-if="verificationLinkSent"
+            class="mb-4 rounded-xl border border-brand-500/20 bg-brand-500/10 px-3 py-2 text-sm font-medium text-brand-300"
         >
             A new verification link has been sent to the email address you
             provided during registration.
         </div>
 
         <form @submit.prevent="submit">
-            <div class="mt-4 flex items-center justify-between">
-                <PrimaryButton
-                    :class="{ 'opacity-25': form.processing }"
-                    :disabled="form.processing"
-                >
-                    Resend Verification Email
-                </PrimaryButton>
+            <PrimaryButton
+                class="w-full"
+                :class="{ 'opacity-40': form.processing }"
+                :disabled="form.processing"
+            >
+                Resend verification email
+            </PrimaryButton>
 
+            <div class="mt-6 text-center">
                 <Link
                     :href="route('logout')"
                     method="post"
                     as="button"
-                    class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:text-gray-400 dark:hover:text-gray-100 dark:focus:ring-offset-gray-800"
-                    >Log Out</Link
+                    class="rounded-md text-sm font-medium text-ink-400 underline decoration-white/20 underline-offset-4 transition hover:text-white"
                 >
+                    Log out
+                </Link>
             </div>
         </form>
     </GuestLayout>

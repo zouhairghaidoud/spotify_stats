@@ -24,18 +24,32 @@ const submit = () => {
     <GuestLayout>
         <Head title="Register" />
 
+        <div class="mb-6">
+            <h1 class="text-xl font-bold tracking-tight text-white">
+                Create your account
+            </h1>
+            <p class="mt-1 text-sm text-ink-400">
+                Start tracking your listening stats in seconds.
+            </p>
+        </div>
+
         <div
             v-if="$page.props.flash?.error"
-            class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 dark:border-red-800 dark:bg-red-900/40 dark:text-red-200"
+            class="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-300"
         >
             {{ $page.props.flash.error }}
         </div>
 
         <a
             :href="route('spotify.redirect')"
-            class="flex w-full items-center justify-center gap-2 rounded-md bg-[#1DB954] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1aa34a] focus:outline-none focus:ring-2 focus:ring-[#1DB954] focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+            class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-500 px-4 py-3 text-sm font-bold text-ink-950 shadow-lg shadow-brand-500/20 transition hover:bg-brand-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-900"
         >
-            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <svg
+                class="h-5 w-5"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+            >
                 <path
                     d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0Zm5.5 17.28a.75.75 0 0 1-1.03.25c-2.82-1.72-6.37-2.11-10.55-1.16a.75.75 0 0 1-.33-1.46c4.57-1.05 8.5-.6 11.66 1.34.35.21.46.67.25 1.03Zm1.47-3.27a.94.94 0 0 1-1.29.31c-3.23-1.98-8.15-2.56-11.97-1.4a.94.94 0 1 1-.54-1.8c4.36-1.32 9.78-.68 13.49 1.6.44.27.58.85.31 1.29Zm.13-3.4C15.24 8.32 8.94 8.11 5.26 9.23a1.12 1.12 0 1 1-.65-2.15c4.22-1.28 11.18-1.03 15.58 1.58a1.12 1.12 0 1 1-1.15 1.92Z"
                 />
@@ -45,12 +59,10 @@ const submit = () => {
 
         <div class="relative my-6">
             <div class="absolute inset-0 flex items-center">
-                <div class="w-full border-t border-gray-300 dark:border-gray-600"></div>
+                <div class="w-full border-t border-white/10"></div>
             </div>
-            <div class="relative flex justify-center text-xs uppercase">
-                <span
-                    class="bg-white px-2 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
-                >
+            <div class="relative flex justify-center text-[11px] uppercase">
+                <span class="bg-ink-900 px-3 font-semibold tracking-wider text-ink-500">
                     Or register with email
                 </span>
             </div>
@@ -63,7 +75,7 @@ const submit = () => {
                 <TextInput
                     id="name"
                     type="text"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full"
                     v-model="form.name"
                     required
                     autofocus
@@ -79,7 +91,7 @@ const submit = () => {
                 <TextInput
                     id="email"
                     type="email"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full"
                     v-model="form.email"
                     required
                     autocomplete="username"
@@ -94,7 +106,7 @@ const submit = () => {
                 <TextInput
                     id="password"
                     type="password"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full"
                     v-model="form.password"
                     required
                     autocomplete="new-password"
@@ -112,7 +124,7 @@ const submit = () => {
                 <TextInput
                     id="password_confirmation"
                     type="password"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full"
                     v-model="form.password_confirmation"
                     required
                     autocomplete="new-password"
@@ -124,22 +136,23 @@ const submit = () => {
                 />
             </div>
 
-            <div class="mt-4 flex items-center justify-end">
-                <Link
-                    :href="route('login')"
-                    class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:text-gray-400 dark:hover:text-gray-100 dark:focus:ring-offset-gray-800"
-                >
-                    Already registered?
-                </Link>
-
-                <PrimaryButton
-                    class="ms-4"
-                    :class="{ 'opacity-25': form.processing }"
-                    :disabled="form.processing"
-                >
-                    Register
-                </PrimaryButton>
-            </div>
+            <PrimaryButton
+                class="mt-6 w-full"
+                :class="{ 'opacity-40': form.processing }"
+                :disabled="form.processing"
+            >
+                Create account
+            </PrimaryButton>
         </form>
+
+        <p class="mt-6 text-center text-sm text-ink-400">
+            Already have an account?
+            <Link
+                :href="route('login')"
+                class="font-semibold text-brand-400 transition hover:text-brand-300"
+            >
+                Log in
+            </Link>
+        </p>
     </GuestLayout>
 </template>

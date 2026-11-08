@@ -35,6 +35,15 @@ const submit = () => {
     <GuestLayout>
         <Head title="Reset Password" />
 
+        <div class="mb-6">
+            <h1 class="text-xl font-bold tracking-tight text-white">
+                Choose a new password
+            </h1>
+            <p class="mt-1 text-sm text-ink-400">
+                Pick something strong and unique to keep your account secure.
+            </p>
+        </div>
+
         <form @submit.prevent="submit">
             <div>
                 <InputLabel for="email" value="Email" />
@@ -42,7 +51,7 @@ const submit = () => {
                 <TextInput
                     id="email"
                     type="email"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full"
                     v-model="form.email"
                     required
                     autofocus
@@ -53,12 +62,12 @@ const submit = () => {
             </div>
 
             <div class="mt-4">
-                <InputLabel for="password" value="Password" />
+                <InputLabel for="password" value="New Password" />
 
                 <TextInput
                     id="password"
                     type="password"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full"
                     v-model="form.password"
                     required
                     autocomplete="new-password"
@@ -70,13 +79,13 @@ const submit = () => {
             <div class="mt-4">
                 <InputLabel
                     for="password_confirmation"
-                    value="Confirm Password"
+                    value="Confirm New Password"
                 />
 
                 <TextInput
                     id="password_confirmation"
                     type="password"
-                    class="mt-1 block w-full"
+                    class="mt-1.5 block w-full"
                     v-model="form.password_confirmation"
                     required
                     autocomplete="new-password"
@@ -88,14 +97,13 @@ const submit = () => {
                 />
             </div>
 
-            <div class="mt-4 flex items-center justify-end">
-                <PrimaryButton
-                    :class="{ 'opacity-25': form.processing }"
-                    :disabled="form.processing"
-                >
-                    Reset Password
-                </PrimaryButton>
-            </div>
+            <PrimaryButton
+                class="mt-6 w-full"
+                :class="{ 'opacity-40': form.processing }"
+                :disabled="form.processing"
+            >
+                Reset password
+            </PrimaryButton>
         </form>
     </GuestLayout>
 </template>
