@@ -7,6 +7,8 @@ Spotify connection to render.
 - **Dashboard** — now playing, top tracks, top artists (4 weeks / 6 months / 1 year), recently played.
 - **Analytics** — listening time, play counts, unique tracks and artists, average track length, top
   genres, a weekday × hour heatmap, discovery rate, and listening streaks.
+- **Charts** — a 12-week trend line per top artist with weekly rank movement, and a side-by-side
+  comparison of the last 4 weeks against the last year, drawn with Chart.js.
 - **Stored history** — a `streams` table of every play collected from `/me/player/recently-played`.
 - **Resilience** — per-user, per-range caching with stale-data fallback when Spotify is slow, down,
   or rate limiting.
@@ -40,6 +42,7 @@ Spotify connection to render.
 | --- | --- |
 | Backend | PHP 8.3, Laravel 13 |
 | Frontend | Inertia.js 2 + Vue 3, Tailwind CSS |
+| Charts | Chart.js 4 through `resources/js/Components/Chart.vue` |
 | Build | `vp` (Vite+) via `npm run build` / `npm run dev` |
 | Database | MySQL in local development; SQLite works too |
 | Cache | Database cache store (`CACHE_STORE=database`) |
@@ -365,6 +368,10 @@ Methods: `topTracks(User $user, string $range)`, `topArtists(User $user, string 
 
 - `forUser(User $user, ?string $timezone = null): array` — computes everything for the analytics page
   from the database only.
+- `artistTrends(User $user, ?string $timezone = null): array` — twelve weekly buckets (Monday starts)
+  and the play counts of the six most played artists, plus weekly rank movement for the top five.
+- `artistComparison(User $user): array` — totals and top artists, with their share of plays, for the
+  last 28 days and the last 365 days.
 
 Returned shape:
 
@@ -389,6 +396,39 @@ Returned shape:
     ],
     'discovery' => ['new_artists' => 31, 'plays' => 50, 'rate' => 0.62],
     'streaks' => ['current' => 4, 'longest' => 4],
+]
+```
+
+`artistTrends()` returns chart-ready data:
+
+```php
+[
+    'weeks' => ['2026-08-17', /* … 12 ISO week starts … */ '2026-11-02'],
+    'series' => [
+        ['artist_id' => '…', 'name' => 'Nessyou', 'plays' => [2, 0, 5, /* … 12 weeks … */]],
+    ],
+    'movement' => [
+        ['artist_id' => '…', 'name' => 'Nessyou', 'plays' => 10, 'previous_plays' => 4, 'rank' => 1, 'change' => 2],
+    ],
+]
+```
+
+`change` is `previous rank − current rank` for the last seven days versus the seven before, or `null`
+when the artist did not appear in the previous week.
+
+`artistComparison()` returns one summary per window:
+
+```php
+[
+    'recent' => [
+        'plays' => 50,
+        'minutes' => 160,
+        'unique_artists' => 31,
+        'top_artists' => [
+            ['artist_id' => '…', 'name' => 'Nessyou', 'plays' => 10, 'share' => 0.2],
+        ],
+    ],
+    'year' => [/* same shape over the last 365 days */],
 ]
 ```
 
@@ -424,6 +464,9 @@ Spotify.
 | Top genres | Artist genres weighted by plays, top 8 |
 | Heatmap | Plays per weekday (Mon–Sun) × hour of day, in the reported timezone |
 | Discovery rate | `unique artists ÷ total plays` — the share of plays that introduced a new artist |
+| Weekly trend | Plays per ISO week (Monday start) in the report timezone for the six most played artists over 12 weeks |
+| Rank movement | New rank subtracted from the previous week's rank; `new` when the artist had no plays the week before |
+| 4 weeks vs 1 year | Per-artist share of plays in the last 28 days and the last 365 days, plus window totals |
 | Current streak | Consecutive days with at least one play, ending today or yesterday |
 | Longest streak | Longest run of consecutive days with at least one play |
 
@@ -472,7 +515,7 @@ Coverage highlights:
 | --- | --- |
 | `tests/Feature/SpotifyCacheTest.php` | Per-user/per-range caching, stale fallback, error state, dashboard with stale data |
 | `tests/Feature/StreamSyncTest.php` | Play persistence, deduplication, invalid items, command sync, metadata backfill, dashboard sync throttling |
-| `tests/Feature/ListeningAnalyticsTest.php` | Overview totals, genre weighting, timezone heatmap, streaks, discovery, empty state, route props, timezone cookie, metadata capture |
+| `tests/Feature/ListeningAnalyticsTest.php` | Overview totals, genre weighting, timezone heatmap, streaks, discovery, weekly trends and rank movement, window comparison, empty state, route props, timezone cookie, metadata capture |
 | `tests/Feature/Auth/*`, `ProfileTest.php` | Standard auth and profile flows |
 
 Format PHP before finishing changes:
@@ -534,6 +577,8 @@ database/migrations/
 resources/js/
   app.js                                    Inertia boot + timezone cookie
   Layouts/AuthenticatedLayout.vue           Navigation (Dashboard, Analytics, Profile)
+  Components/Chart.vue                      Chart.js wrapper (line and bar)
+  chartTheme.js                             Shared chart palette, grid, and tooltip styling
   pages/Dashboard.vue                       Live Spotify stats
   pages/Analytics.vue                       Stored-data analytics
   pages/Welcome.vue                         Landing page

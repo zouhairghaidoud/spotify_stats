@@ -1,5 +1,13 @@
 <script setup>
+import Chart from '@/Components/Chart.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import {
+    chartColors,
+    chartGridColor,
+    chartLegend,
+    chartTickColor,
+    chartTooltip,
+} from '@/chartTheme';
 import { Head, Link } from '@inertiajs/vue3';
 import { computed } from 'vue';
 
@@ -32,6 +40,14 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    trends: {
+        type: Object,
+        required: true,
+    },
+    comparison: {
+        type: Object,
+        required: true,
+    },
 });
 
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -44,6 +60,151 @@ const maxGenrePlays = computed(() =>
 );
 
 const discoveryPercent = computed(() => Math.round(props.discovery.rate * 100));
+
+const trendChartData = computed(() => ({
+    labels: props.trends.weeks.map(formatWeek),
+    datasets: props.trends.series.map((artist, index) => ({
+        label: artist.name,
+        data: artist.plays,
+        borderColor: chartColors[index % chartColors.length],
+        backgroundColor: chartColors[index % chartColors.length],
+        borderWidth: 2,
+        tension: 0.35,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 12,
+    })),
+}));
+
+const trendChartOptions = computed(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+        legend: {
+            ...chartLegend,
+            labels: { ...chartLegend.labels },
+        },
+        tooltip: {
+            ...chartTooltip,
+            callbacks: {
+                label: (context) =>
+                    `${context.dataset.label}: ${context.parsed.y} plays`,
+            },
+        },
+    },
+    scales: {
+        x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+                color: chartTickColor,
+                maxRotation: 0,
+                autoSkipPadding: 18,
+            },
+        },
+        y: {
+            beginAtZero: true,
+            grid: { color: chartGridColor },
+            border: { display: false },
+            ticks: { color: chartTickColor, precision: 0 },
+        },
+    },
+}));
+
+const comparisonWindows = computed(() => [
+    { key: 'recent', title: 'Last 4 weeks', data: props.comparison.recent },
+    { key: 'year', title: 'Last year', data: props.comparison.year },
+]);
+
+const comparisonLabels = computed(() => {
+    const seen = new Set();
+    const artists = [];
+
+    [
+        ...props.comparison.recent.top_artists,
+        ...props.comparison.year.top_artists,
+    ].forEach((artist) => {
+        if (seen.has(artist.artist_id)) {
+            return;
+        }
+
+        seen.add(artist.artist_id);
+        artists.push({ id: artist.artist_id, name: artist.name });
+    });
+
+    return artists.slice(0, 6);
+});
+
+function shareFor(window, artistId) {
+    return (
+        window.top_artists.find((artist) => artist.artist_id === artistId)
+            ?.share ?? 0
+    );
+}
+
+const comparisonChartData = computed(() => ({
+    labels: comparisonLabels.value.map((artist) =>
+        truncate(artist.name, 22),
+    ),
+    datasets: [
+        {
+            label: 'Last 4 weeks',
+            data: comparisonLabels.value.map(
+                (artist) =>
+                    Math.round(shareFor(props.comparison.recent, artist.id) * 1000) / 10,
+            ),
+            backgroundColor: 'rgba(29, 185, 84, 0.85)',
+            borderRadius: 6,
+            maxBarThickness: 18,
+        },
+        {
+            label: 'Last year',
+            data: comparisonLabels.value.map(
+                (artist) =>
+                    Math.round(shareFor(props.comparison.year, artist.id) * 1000) / 10,
+            ),
+            backgroundColor: 'rgba(79, 156, 249, 0.7)',
+            borderRadius: 6,
+            maxBarThickness: 18,
+        },
+    ],
+}));
+
+const comparisonChartOptions = computed(() => ({
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        legend: {
+            ...chartLegend,
+            labels: { ...chartLegend.labels },
+        },
+        tooltip: {
+            ...chartTooltip,
+            callbacks: {
+                label: (context) =>
+                    `${context.dataset.label}: ${context.parsed.x}% of plays`,
+            },
+        },
+    },
+    scales: {
+        x: {
+            beginAtZero: true,
+            grid: { color: chartGridColor },
+            border: { display: false },
+            ticks: {
+                color: chartTickColor,
+                callback: (value) => `${value}%`,
+            },
+        },
+        y: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: chartTickColor },
+        },
+    },
+}));
 
 const stats = computed(() => [
     {
@@ -88,6 +249,57 @@ function formatTrackLength(seconds) {
     }
 
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function formatWeek(isoDate) {
+    return new Intl.DateTimeFormat(undefined, {
+        month: 'short',
+        day: 'numeric',
+    }).format(new Date(`${isoDate}T00:00:00`));
+}
+
+function truncate(value, length) {
+    return value.length > length ? `${value.slice(0, length - 1)}…` : value;
+}
+
+function windowStats(window) {
+    return [
+        { label: 'Plays', value: formatNumber(window.plays) },
+        { label: 'Listening', value: formatListeningTime(window.minutes) },
+        { label: 'Artists', value: formatNumber(window.unique_artists) },
+    ];
+}
+
+function formatMovement(change) {
+    if (change === null) {
+        return 'New';
+    }
+
+    if (change > 0) {
+        return `↑ ${change}`;
+    }
+
+    if (change < 0) {
+        return `↓ ${Math.abs(change)}`;
+    }
+
+    return '—';
+}
+
+function movementClass(change) {
+    if (change === null) {
+        return 'border-brand-500/20 bg-brand-500/10 text-brand-300';
+    }
+
+    if (change > 0) {
+        return 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300';
+    }
+
+    if (change < 0) {
+        return 'border-red-500/20 bg-red-500/10 text-red-300';
+    }
+
+    return 'border-white/10 bg-white/5 text-ink-400';
 }
 
 function formatDate(value) {
@@ -306,6 +518,150 @@ function cellLabel(dayIndex, hour, count) {
                         </div>
                     </section>
                 </div>
+
+                <!-- Artist trends -->
+                <section class="surface-card overflow-hidden">
+                    <header
+                        class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4"
+                    >
+                        <div>
+                            <h2 class="text-base font-bold text-white">
+                                Artist trends
+                            </h2>
+                            <p class="mt-0.5 text-xs text-ink-400">
+                                Weekly plays for your top artists, last 12 weeks
+                            </p>
+                        </div>
+                        <span
+                            v-if="trends.series.length"
+                            class="rounded-full bg-white/5 px-2.5 py-1 text-xs font-semibold text-ink-300"
+                        >
+                            Top {{ trends.series.length }}
+                        </span>
+                    </header>
+
+                    <template v-if="trends.series.length">
+                        <div class="px-5 pb-2 pt-6">
+                            <div class="relative h-72">
+                                <Chart
+                                    type="line"
+                                    label="Weekly plays per top artist over the last 12 weeks"
+                                    :data="trendChartData"
+                                    :options="trendChartOptions"
+                                />
+                            </div>
+                        </div>
+
+                        <div class="border-t border-white/[0.06] px-5 py-5">
+                            <div
+                                class="flex flex-wrap items-baseline justify-between gap-2"
+                            >
+                                <h3 class="text-sm font-bold text-white">
+                                    Rank movement
+                                </h3>
+                                <p class="text-xs text-ink-400">
+                                    This week vs the previous 7 days
+                                </p>
+                            </div>
+
+                            <ol class="mt-4 space-y-1">
+                                <li
+                                    v-for="artist in trends.movement"
+                                    :key="artist.artist_id"
+                                    class="flex items-center gap-3 rounded-xl px-2 py-2 transition hover:bg-white/[0.03]"
+                                >
+                                    <span
+                                        class="w-5 shrink-0 text-right text-sm font-bold tabular-nums text-ink-500"
+                                    >
+                                        {{ artist.rank }}
+                                    </span>
+                                    <div class="min-w-0 flex-1">
+                                        <p
+                                            class="truncate text-sm font-semibold text-white"
+                                        >
+                                            {{ artist.name }}
+                                        </p>
+                                        <p class="text-xs text-ink-400">
+                                            {{ formatNumber(artist.plays) }} plays
+                                            this week
+                                            &middot;
+                                            {{ formatNumber(artist.previous_plays) }}
+                                            before
+                                        </p>
+                                    </div>
+                                    <span
+                                        class="shrink-0 rounded-full border px-2 py-0.5 text-xs font-bold"
+                                        :class="movementClass(artist.change)"
+                                        :title="`Rank change for ${artist.name}`"
+                                    >
+                                        {{ formatMovement(artist.change) }}
+                                    </span>
+                                </li>
+                            </ol>
+                        </div>
+                    </template>
+
+                    <p v-else class="px-5 py-12 text-center text-sm text-ink-400">
+                        No artist plays in the last 12 weeks yet.
+                    </p>
+                </section>
+
+                <!-- 4 weeks vs 1 year -->
+                <section class="surface-card overflow-hidden">
+                    <header class="border-b border-white/[0.06] px-5 py-4">
+                        <h2 class="text-base font-bold text-white">
+                            4 weeks vs 1 year
+                        </h2>
+                        <p class="mt-0.5 text-xs text-ink-400">
+                            How your artist mix shifted, as a share of plays in
+                            each window
+                        </p>
+                    </header>
+
+                    <div class="grid gap-4 px-5 py-5 sm:grid-cols-2">
+                        <div
+                            v-for="window in comparisonWindows"
+                            :key="window.key"
+                            class="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
+                        >
+                            <p
+                                class="text-xs font-semibold uppercase tracking-wide text-ink-400"
+                            >
+                                {{ window.title }}
+                            </p>
+                            <div class="mt-3 grid grid-cols-3 gap-2">
+                                <div
+                                    v-for="stat in windowStats(window.data)"
+                                    :key="stat.label"
+                                >
+                                    <p class="text-lg font-bold text-white">
+                                        {{ stat.value }}
+                                    </p>
+                                    <p class="text-[11px] text-ink-400">
+                                        {{ stat.label }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="comparisonLabels.length" class="px-5 pb-6">
+                        <div class="relative h-64">
+                            <Chart
+                                type="bar"
+                                label="Share of plays by artist, last 4 weeks versus last year"
+                                :data="comparisonChartData"
+                                :options="comparisonChartOptions"
+                            />
+                        </div>
+                    </div>
+                    <p
+                        v-else
+                        class="px-5 pb-8 text-center text-sm text-ink-400"
+                    >
+                        No plays recorded in these windows yet.
+                    </p>
+                </section>
 
                 <!-- Top genres -->
                 <section class="surface-card overflow-hidden">

@@ -128,6 +128,82 @@ it('returns zeroed analytics for a user without plays', function () {
         ->and($analytics['heatmap']['max'])->toBe(0);
 });
 
+it('builds weekly artist trends and weekly rank movement', function () {
+    $this->travelTo('2026-11-08 12:00:00');
+
+    $user = User::factory()->create();
+
+    artistWithGenres('artist-1', 'Artist One', []);
+    artistWithGenres('artist-2', 'Artist Two', []);
+
+    // Current seven days: artist one leads.
+    storePlay($user, 't1', '2026-11-03 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't2', '2026-11-04 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't3', '2026-11-05 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't4', '2026-11-07 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't5', '2026-11-06 10:00:00', 180000, 'artist-2');
+
+    // Previous seven days: artist two led.
+    storePlay($user, 't6', '2026-10-27 10:00:00', 180000, 'artist-2');
+    storePlay($user, 't7', '2026-10-28 10:00:00', 180000, 'artist-2');
+    storePlay($user, 't8', '2026-10-29 10:00:00', 180000, 'artist-2');
+    storePlay($user, 't9', '2026-10-30 10:00:00', 180000, 'artist-1');
+
+    $trends = app(ListeningAnalyticsService::class)->artistTrends($user, 'UTC');
+
+    expect($trends['weeks'])->toHaveCount(12)
+        ->and($trends['weeks'][11])->toBe(Carbon::parse('2026-11-08 12:00:00', 'UTC')->startOfWeek()->toDateString())
+        ->and($trends['series'])->toHaveCount(2)
+        ->and($trends['series'][0]['name'])->toBe('Artist One')
+        ->and(array_sum($trends['series'][0]['plays']))->toBe(5)
+        ->and($trends['series'][1]['name'])->toBe('Artist Two')
+        ->and($trends['movement'][0]['name'])->toBe('Artist One')
+        ->and($trends['movement'][0]['change'])->toBe(1)
+        ->and($trends['movement'][0]['previous_plays'])->toBe(1)
+        ->and($trends['movement'][1]['change'])->toBe(-1)
+        ->and($trends['movement'][1]['previous_plays'])->toBe(3);
+});
+
+it('marks artists heard for the first time this week as new', function () {
+    $this->travelTo('2026-11-08 12:00:00');
+
+    $user = User::factory()->create();
+
+    storePlay($user, 't1', '2026-11-05 10:00:00', 180000, 'artist-1');
+
+    $movement = app(ListeningAnalyticsService::class)->artistTrends($user, 'UTC')['movement'];
+
+    expect($movement[0]['change'])->toBeNull();
+});
+
+it('compares the last four weeks with the last year', function () {
+    $this->travelTo('2026-11-08 12:00:00');
+
+    $user = User::factory()->create();
+
+    artistWithGenres('artist-1', 'Artist One', []);
+    artistWithGenres('artist-2', 'Artist Two', []);
+
+    storePlay($user, 't1', '2026-11-05 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't2', '2026-11-06 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't3', '2026-11-07 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't4', '2026-02-01 10:00:00', 180000, 'artist-2');
+    storePlay($user, 't5', '2025-01-01 10:00:00', 180000, 'artist-3');
+
+    $comparison = app(ListeningAnalyticsService::class)->artistComparison($user);
+
+    expect($comparison['recent']['plays'])->toBe(3)
+        ->and($comparison['recent']['minutes'])->toBe(9)
+        ->and($comparison['recent']['unique_artists'])->toBe(1)
+        ->and($comparison['recent']['top_artists'][0]['name'])->toBe('Artist One')
+        ->and($comparison['recent']['top_artists'][0]['share'])->toBe(1.0)
+        ->and($comparison['year']['plays'])->toBe(4)
+        ->and($comparison['year']['unique_artists'])->toBe(2)
+        ->and($comparison['year']['top_artists'][0]['name'])->toBe('Artist One')
+        ->and($comparison['year']['top_artists'][1]['name'])->toBe('Artist Two')
+        ->and($comparison['year']['top_artists'][1]['share'])->toBe(0.25);
+});
+
 it('renders the analytics page from stored plays', function () {
     $user = User::factory()->connectedToSpotify()->create();
 
@@ -143,7 +219,11 @@ it('renders the analytics page from stored plays', function () {
             ->where('overview.plays', 1)
             ->where('top_genres.0.genre', 'indie pop')
             ->has('heatmap.counts', 7)
-            ->where('streaks.longest', 1));
+            ->where('streaks.longest', 1)
+            ->has('trends.weeks', 12)
+            ->where('trends.series.0.name', 'A')
+            ->where('comparison.recent.plays', 1)
+            ->where('comparison.year.plays', 1));
 });
 
 it('uses the timezone cookie written by the browser', function () {
@@ -179,7 +259,11 @@ it('renders the empty analytics state without plays', function () {
             ->component('Analytics')
             ->where('spotifyConnected', false)
             ->where('overview.plays', 0)
-            ->where('top_genres', []));
+            ->where('top_genres', [])
+            ->where('trends.series', [])
+            ->where('trends.movement', [])
+            ->where('comparison.recent.plays', 0)
+            ->where('comparison.year.plays', 0));
 });
 
 it('requires authentication for analytics', function () {

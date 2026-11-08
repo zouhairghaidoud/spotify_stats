@@ -15,10 +15,13 @@ class AnalyticsController extends Controller
     public function __invoke(Request $request, ListeningAnalyticsService $analytics): Response
     {
         $user = $request->user();
+        $timezone = $this->timezone($request);
 
         return Inertia::render('Analytics', [
             'spotifyConnected' => $user->isConnectedToSpotify(),
-            ...$analytics->forUser($user, $this->timezone($request)),
+            ...$analytics->forUser($user, $timezone),
+            'trends' => $analytics->artistTrends($user, $timezone),
+            'comparison' => $analytics->artistComparison($user),
         ]);
     }
 
