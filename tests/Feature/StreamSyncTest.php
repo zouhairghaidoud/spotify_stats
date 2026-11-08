@@ -3,6 +3,7 @@
 use App\Models\Stream;
 use App\Models\User;
 use App\Services\StreamSyncService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -69,6 +70,40 @@ it('ignores plays without a track id or played_at timestamp', function () {
     ]);
 
     expect(app(StreamSyncService::class)->sync($user))->toBe(1);
+});
+
+it('backfills duration and artist for plays stored before analytics columns existed', function () {
+    $user = User::factory()->connectedToSpotify()->create();
+
+    DB::table('streams')->insert([
+        'user_id' => $user->id,
+        'spotify_track_id' => 'track-a',
+        'played_at' => '2026-11-08 10:00:00.000',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    Http::fake([
+        'api.spotify.com/v1/me/player/recently-played*' => Http::response([
+            'items' => [[
+                'track' => [
+                    'id' => 'track-a',
+                    'duration_ms' => 198000,
+                    'artists' => [['id' => 'artist-a', 'name' => 'Artist A']],
+                ],
+                'played_at' => '2026-11-08T10:00:00.000Z',
+                'context' => null,
+            ]],
+        ]),
+        'api.spotify.com/v1/me/top/artists*' => Http::response(['items' => []]),
+    ]);
+
+    app(StreamSyncService::class)->sync($user);
+
+    $stream = Stream::query()->whereBelongsTo($user)->sole();
+
+    expect($stream->duration_ms)->toBe(198000)
+        ->and($stream->artist_id)->toBe('artist-a');
 });
 
 it('throttles the dashboard fallback sync instead of hitting Spotify on every page load', function () {

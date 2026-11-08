@@ -49,6 +49,9 @@ export default {
                     950: rgb('--ink-950'),
                 },
             },
+            gridTemplateColumns: {
+                24: 'repeat(24, minmax(0, 1fr))',
+            },
             boxShadow: {
                 glow: '0 0 0 1px rgba(29, 185, 84, 0.25), 0 20px 60px -20px rgba(29, 185, 84, 0.45)',
                 card: '0 20px 50px -24px rgb(var(--shadow) / 0.8)',

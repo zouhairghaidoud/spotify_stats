@@ -7,6 +7,13 @@ import { ZiggyVue } from '../../vendor/tightenco/ziggy';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
+// Remember the browser timezone so server-side analytics use local days.
+const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+if (timezone) {
+    document.cookie = `timezone=${encodeURIComponent(timezone)};path=/;max-age=31536000;samesite=lax`;
+}
+
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
     resolve: (name) =>

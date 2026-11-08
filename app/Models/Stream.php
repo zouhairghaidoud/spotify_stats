@@ -13,12 +13,14 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property int $user_id
  * @property string $spotify_track_id
+ * @property int|null $duration_ms
+ * @property string|null $artist_id
  * @property Carbon $played_at
  * @property string|null $context
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['user_id', 'spotify_track_id', 'played_at', 'context'])]
+#[Fillable(['user_id', 'spotify_track_id', 'duration_ms', 'artist_id', 'played_at', 'context'])]
 class Stream extends Model
 {
     /**
