@@ -18,15 +18,28 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $email_verified_at
  * @property string $password
  * @property string|null $remember_token
+ * @property string|null $spotify_id
+ * @property string|null $spotify_avatar
+ * @property string|null $spotify_access_token
+ * @property string|null $spotify_refresh_token
+ * @property Carbon|null $spotify_token_expires_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
 #[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'spotify_access_token', 'spotify_refresh_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    /**
+     * Determine if the user has linked their Spotify account.
+     */
+    public function isConnectedToSpotify(): bool
+    {
+        return filled($this->spotify_refresh_token);
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -38,6 +51,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'spotify_access_token' => 'encrypted',
+            'spotify_refresh_token' => 'encrypted',
+            'spotify_token_expires_at' => 'datetime',
         ];
     }
 }
