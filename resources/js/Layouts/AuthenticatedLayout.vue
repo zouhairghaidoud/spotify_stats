@@ -69,6 +69,12 @@ const initials = computed(() => {
                                 Analytics
                             </NavLink>
                             <NavLink
+                                :href="route('recap')"
+                                :active="route().current('recap')"
+                            >
+                                Recap
+                            </NavLink>
+                            <NavLink
                                 :href="route('profile.edit')"
                                 :active="route().current('profile.edit')"
                             >
@@ -225,6 +231,13 @@ const initials = computed(() => {
                         @click="showingNavigationDropdown = false"
                     >
                         Analytics
+                    </ResponsiveNavLink>
+                    <ResponsiveNavLink
+                        :href="route('recap')"
+                        :active="route().current('recap')"
+                        @click="showingNavigationDropdown = false"
+                    >
+                        Recap
                     </ResponsiveNavLink>
                     <ResponsiveNavLink
                         :href="route('profile.edit')"

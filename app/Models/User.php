@@ -24,6 +24,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $spotify_access_token
  * @property string|null $spotify_refresh_token
  * @property Carbon|null $spotify_token_expires_at
+ * @property string|null $recap_token
+ * @property string|null $recap_timezone
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Artist;
 use App\Models\Stream;
+use App\Models\Track;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -54,6 +55,7 @@ class StreamSyncService
             $this->backfillMetadata($user, $rows);
         }
 
+        $this->snapshotTracks($items);
         $this->snapshotArtists($user);
 
         return $stored;
@@ -93,6 +95,54 @@ class StreamSyncService
                     'artist_id' => $row['artist_id'],
                     'updated_at' => $row['updated_at'],
                 ]);
+        }
+    }
+
+    /**
+     * Store track titles, albums, and cover art so recaps can be rendered
+     * without calling Spotify.
+     *
+     * @param  array<int, mixed>  $items
+     */
+    private function snapshotTracks(array $items): void
+    {
+        $rows = collect($items)
+            ->filter(fn (mixed $item): bool => is_array($item) && filled(data_get($item, 'track.id')))
+            ->map(fn (array $item): array => [
+                'spotify_track_id' => (string) data_get($item, 'track.id'),
+                'name' => (string) (data_get($item, 'track.name') ?: 'Unknown track'),
+                'artist_id' => filled(data_get($item, 'track.artists.0.id'))
+                    ? (string) data_get($item, 'track.artists.0.id')
+                    : null,
+                'artist_name' => filled(data_get($item, 'track.artists.0.name'))
+                    ? (string) data_get($item, 'track.artists.0.name')
+                    : null,
+                'album_name' => filled(data_get($item, 'track.album.name'))
+                    ? (string) data_get($item, 'track.album.name')
+                    : null,
+                'album_image_url' => filled(data_get($item, 'track.album.images.0.url'))
+                    ? (string) data_get($item, 'track.album.images.0.url')
+                    : null,
+                'duration_ms' => is_numeric(data_get($item, 'track.duration_ms'))
+                    ? (int) data_get($item, 'track.duration_ms')
+                    : null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ])
+            ->unique('spotify_track_id')
+            ->values()
+            ->all();
+
+        if ($rows === []) {
+            return;
+        }
+
+        foreach (array_chunk($rows, 100) as $chunk) {
+            Track::query()->upsert(
+                $chunk,
+                ['spotify_track_id'],
+                ['name', 'artist_id', 'artist_name', 'album_name', 'album_image_url', 'duration_ms', 'updated_at'],
+            );
         }
     }
 

@@ -3,6 +3,8 @@
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PublicRecapController;
+use App\Http\Controllers\RecapController;
 use App\Http\Controllers\SpotifyController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -25,10 +27,20 @@ Route::get('/analytics', AnalyticsController::class)
     ->middleware(['auth', 'verified'])
     ->name('analytics');
 
+Route::get('/recap', [RecapController::class, 'show'])
+    ->middleware(['auth', 'verified'])
+    ->name('recap');
+
+Route::get('/u/{token}', [PublicRecapController::class, 'show'])->name('recap.public');
+Route::get('/u/{token}/og.png', [PublicRecapController::class, 'image'])->name('recap.image');
+
 Route::get('/auth/spotify/redirect', [SpotifyController::class, 'redirect'])->name('spotify.redirect');
 Route::get('/auth/spotify/callback', [SpotifyController::class, 'callback'])->name('spotify.callback');
 
 Route::middleware('auth')->group(function () {
+    Route::post('/recap/share', [RecapController::class, 'share'])->name('recap.share');
+    Route::delete('/recap/share', [RecapController::class, 'revoke'])->name('recap.revoke');
+
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');

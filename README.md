@@ -9,6 +9,9 @@ Spotify connection to render.
   genres, a weekday × hour heatmap, discovery rate, and listening streaks.
 - **Charts** — a 12-week trend line per top artist with weekly rank movement, and a side-by-side
   comparison of the last 4 weeks against the last year, drawn with Chart.js.
+- **Recap** — a wrapped-style `/recap` story with your top five tracks, top artist, minutes, genres,
+  and peak listening hour, exportable as a PNG from the browser.
+- **Sharing** — an optional tokenized `/u/{token}` page with a server-rendered Open Graph card.
 - **Stored history** — a `streams` table of every play collected from `/me/player/recently-played`.
 - **Resilience** — per-user, per-range caching with stale-data fallback when Spotify is slow, down,
   or rate limiting.
@@ -29,10 +32,11 @@ Spotify connection to render.
 10. [Services reference](#services-reference)
 11. [Commands and schedule](#commands-and-schedule)
 12. [Analytics definitions](#analytics-definitions)
-13. [Timezones](#timezones)
-14. [Testing](#testing)
-15. [Known limitations](#known-limitations)
-16. [Project structure](#project-structure)
+13. [Recap and sharing](#recap-and-sharing)
+14. [Timezones](#timezones)
+15. [Testing](#testing)
+16. [Known limitations](#known-limitations)
+17. [Project structure](#project-structure)
 
 ---
 
@@ -243,6 +247,26 @@ reported. If nothing is cached at all the exception propagates and the dashboard
 
 Because the cache store is the database, cached snapshots survive restarts and deploys.
 
+### 5. Recap and sharing
+
+`GET /recap` renders `resources/js/pages/Recap.vue` from the stored plays only. `RecapService`
+combines the analytics aggregates (minutes, unique counts, genres, heatmap) with track metadata from
+the `tracks` table to produce the top five tracks, the top artist and their share of plays, and the
+peak hour.
+
+Sharing is opt-in:
+
+1. `POST /recap/share` creates a 48-character `recap_token` on the user (or keeps the existing one)
+   and stores the timezone the recap was viewed in as `recap_timezone`.
+2. `GET /u/{token}` renders the same story read-only without authentication, using the stored
+   timezone so the shared numbers match what the owner saw. A wrong or revoked token returns `404`.
+3. `GET /u/{token}/og.png` renders a 1200×630 PNG with GD for link previews.
+4. `DELETE /recap/share` clears the token and timezone; the old URL stops working immediately.
+
+`resources/views/app.blade.php` adds the Open Graph and Twitter card tags only when the page passes
+an `og` prop, so ordinary pages stay untouched. The recap page can also be exported client-side with
+`html-to-image` (`toPng` at 2× pixel ratio), which needs no server round trip.
+
 ---
 
 ## Data model
@@ -258,6 +282,8 @@ Standard Laravel user columns plus Spotify link data:
 | `spotify_access_token` | Encrypted, hidden |
 | `spotify_refresh_token` | Encrypted, hidden |
 | `spotify_token_expires_at` | Access token expiry |
+| `recap_token` | 48-character public recap token, unique, nullable |
+| `recap_timezone` | IANA timezone captured when the recap link was created |
 
 Accounts created through Spotify sign-in get a random password (so they cannot use the password
 login form until one is set) and leave `email_verified_at` empty. Verification is not enforced
@@ -299,6 +325,26 @@ Only artists that appear in one of those top lists get a row. A rarely played ar
 missing here; its plays still count toward totals, discovery, and the heatmap, but add no genre
 weight.
 
+### `tracks`
+
+Track metadata snapshot used to name and illustrate the top tracks in a recap.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | bigint | |
+| `spotify_track_id` | string(32), unique | |
+| `name` | string | |
+| `artist_id` | string(32), nullable, indexed | Primary artist |
+| `artist_name` | string, nullable | Denormalised so a recap needs no artist lookup |
+| `album_name` | string, nullable | |
+| `album_image_url` | text, nullable | Spotify cover art (`i.scdn.co`) |
+| `duration_ms` | unsigned int, nullable | |
+| `created_at` / `updated_at` | timestamps | |
+
+Rows are upserted by `spotify_track_id` during every sync from the tracks returned by
+`/me/player/recently-played`. Titles and covers therefore only exist for tracks inside the 50-play
+sync window; the recap falls back to `Unknown track` and a placeholder for older plays.
+
 ### Framework tables
 
 `password_reset_tokens`, `sessions`, `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs` —
@@ -313,13 +359,19 @@ stock Laravel migrations.
 | GET | `/` | — | web | Marketing page |
 | GET | `/dashboard` | `dashboard` | `auth`, `verified` | Live stats and connect prompt |
 | GET | `/analytics` | `analytics` | `auth`, `verified` | Stored-data analytics |
+| GET | `/recap` | `recap` | `auth`, `verified` | Wrapped-style recap with share controls |
+| POST | `/recap/share` | `recap.share` | `auth` | Create (or keep) the public link |
+| DELETE | `/recap/share` | `recap.revoke` | `auth` | Revoke the public link |
+| GET | `/u/{token}` | `recap.public` | web | Public read-only recap |
+| GET | `/u/{token}/og.png` | `recap.image` | web | 1200×630 Open Graph card |
 | GET | `/auth/spotify/redirect` | `spotify.redirect` | web | Start OAuth (login or connect) |
 | GET | `/auth/spotify/callback` | `spotify.callback` | web | Finish OAuth |
 | GET/PATCH/DELETE | `/profile` | `profile.*` | `auth` | Profile management |
 | — | `/login`, `/register`, `/logout`, … | — | — | Standard Laravel auth routes |
 
-`/analytics` accepts an optional `?timezone=` IANA identifier; an invalid value falls back to the
-application timezone.
+`/analytics` and `/recap` accept an optional `?timezone=` IANA identifier, then the `timezone`
+cookie; an invalid value falls back to the application timezone. The `/u/{token}` routes are public
+and use the timezone stored when the link was created.
 
 ---
 
@@ -361,8 +413,8 @@ Methods: `topTracks(User $user, string $range)`, `topArtists(User $user, string 
 
 ### `App\Services\StreamSyncService`
 
-- `sync(User $user): int` — persists new plays, backfills missing metadata, refreshes the artist
-  snapshot, and returns the number of newly inserted rows.
+- `sync(User $user): int` — persists new plays, backfills missing metadata, upserts `tracks`
+  metadata, refreshes the artist snapshot, and returns the number of newly inserted rows.
 
 ### `App\Services\ListeningAnalyticsService`
 
@@ -432,6 +484,44 @@ when the artist did not appear in the previous week.
 ]
 ```
 
+### `App\Services\RecapService`
+
+- `forUser(User $user, ?string $timezone = null): array` — builds the recap from the stored plays and
+the `tracks` snapshot:
+
+```php
+[
+    'timezone' => 'Europe/Berlin',
+    'period' => ['from' => '2026-11-05T07:12:00+00:00', 'to' => '2026-11-08T13:40:00+00:00'],
+    'overview' => ['plays' => 50, 'minutes' => 160, 'unique_artists' => 31, 'unique_tracks' => 48],
+    'top_tracks' => [
+        [
+            'spotify_track_id' => '…',
+            'name' => 'TEFLON',
+            'artist_name' => "L'morphine",
+            'album_name' => '…',
+            'cover_url' => 'https://i.scdn.co/…',
+            'duration_ms' => 205000,
+            'plays' => 7,
+        ],
+    ],
+    'top_artist' => ['artist_id' => '…', 'name' => 'Nessyou', 'plays' => 10, 'share' => 0.2],
+    'top_genres' => [['genre' => 'indie pop', 'plays' => 12]],
+    'peak_hour' => ['hour' => 17, 'plays' => 13],
+]
+```
+
+`top_tracks` holds at most five tracks ordered by play count. `top_artist.share` is that artist's
+plays divided by every play with an attributed artist. `peak_hour` sums the heatmap columns and is
+`null` when there are no plays.
+
+### `App\Services\RecapImageService`
+
+- `render(array $recap): string` — returns the PNG bytes for the 1200×630 Open Graph card. It uses the
+  first available TrueType font (`resources/fonts/Figtree-Bold.ttf`, then Arial, DejaVu Sans, or
+  Liberation Sans) and falls back to GD's built-in bitmap font when none can be found. It throws a
+  `RuntimeException` when the GD extension is unavailable.
+
 ---
 
 ## Commands and schedule
@@ -475,6 +565,36 @@ full length. There is currently no partial-play data available from the API.
 
 ---
 
+## Recap and sharing
+
+The recap is a single scrollable story built from the same stored plays as the analytics page:
+
+| Section | Source |
+| --- | --- |
+| Minutes, plays, artists, tracks | `ListeningAnalyticsService::forUser()` overview |
+| Top artist and their share of plays | Most played `artist_id` |
+| Top 5 tracks | Play counts joined with `tracks` for title, artist, album, cover, duration |
+| Top 3 genres | Aggregated artist genres |
+| Most active hour | Column totals of the weekday × hour heatmap |
+
+**Owner view (`/recap`).** Shows the story plus the download button and share controls. An empty
+history renders an empty state instead of zeroed sections.
+
+**Image export.** `html-to-image`'s `toPng` renders the cover card at 2× pixel ratio and downloads
+`spotify-stats-recap.png`; no server call is involved. Failures are reported inline.
+
+**Share link.** Creating a link stores a 48-character `recap_token` (regenerated only after a revoke)
+and the current timezone on the user. The link is reusable and read-only until revoked; revoking
+clears both columns and immediately breaks the URL and its image.
+
+**OG image.** `/u/{token}/og.png` is drawn server-side by `RecapImageService` with GD: a dark card
+with the minutes, play/artist/track counts, top artist, top track, and peak hour. It is sent as
+`image/png` with `Cache-Control: public, max-age=3600`, so a link preview may lag behind new plays by
+up to an hour. The public page also emits `og:*` and `twitter:*` tags in the Blade shell because
+Inertia SSR is disabled.
+
+---
+
 ## Timezones
 
 Heatmap cells and streaks depend on the listener's local day, not UTC. On boot the front end writes
@@ -484,6 +604,10 @@ accepts a valid `?timezone=` query parameter, then the cookie, then falls back t
 `config('app.timezone')` (UTC).
 
 Data is always stored in UTC; conversion happens only for display and aggregation.
+
+A shared recap keeps the timezone it was created in (`users.recap_timezone`), so `/u/{token}` and its
+OG image reproduce the owner's hours and days even when a visitor is in a different zone. Revoking
+the link clears the stored timezone.
 
 The application timezone itself is set in `config/app.php`.
 
@@ -516,6 +640,7 @@ Coverage highlights:
 | `tests/Feature/SpotifyCacheTest.php` | Per-user/per-range caching, stale fallback, error state, dashboard with stale data |
 | `tests/Feature/StreamSyncTest.php` | Play persistence, deduplication, invalid items, command sync, metadata backfill, dashboard sync throttling |
 | `tests/Feature/ListeningAnalyticsTest.php` | Overview totals, genre weighting, timezone heatmap, streaks, discovery, weekly trends and rank movement, window comparison, empty state, route props, timezone cookie, metadata capture |
+| `tests/Feature/RecapTest.php` | Recap data and empty state, share/revoke, public page and OG tags, PNG signature, track metadata snapshot |
 | `tests/Feature/Auth/*`, `ProfileTest.php` | Standard auth and profile flows |
 
 Format PHP before finishing changes:
@@ -546,6 +671,15 @@ vendor/bin/pint --dirty --format agent
   the dashboard triggers a fallback sync.
 - **No data pruning.** `streams` grows forever; aggregate the table or add a retention window if the
   history becomes large.
+- **Recap images need GD.** The OG card uses GD with FreeType. Without the extension
+  `/u/{token}/og.png` returns a `500`, though the public page itself still works.
+- **Track metadata only covers the sync window.** `/me/player/recently-played` returns the last 50
+  plays, so older plays have no stored title or cover and appear as `Unknown track` with a
+  placeholder.
+- **Share links are bearer URLs.** Anyone with the URL can view the recap and its image until the
+  owner revokes it. There is no password, expiry, or per-link analytics.
+- **Client export can miss covers.** `html-to-image` inlines the card, but Spotify's `i.scdn.co`
+  images can refuse CORS; the export still downloads with a blank cover slot instead of failing.
 
 ---
 
@@ -556,35 +690,45 @@ app/
   Console/Commands/SyncSpotifyStreams.php   Artisan sync command
   Http/
     Controllers/AnalyticsController.php     /analytics
+    Controllers/RecapController.php         /recap, share + revoke
+    Controllers/PublicRecapController.php   /u/{token}, OG image
     Controllers/DashboardController.php     /dashboard, fallback sync
     Controllers/SpotifyController.php       OAuth redirect + callback
+    Controllers/Concerns/ResolvesTimezone.php  Query/cookie timezone resolution
     Middleware/HandleInertiaRequests.php    Shared Inertia props (auth, flash)
   Models/
     Artist.php                              Artist snapshot + genre cast
     Stream.php                              A single stored play
-    User.php                                Spotify tokens, streams relation
+    Track.php                               Track metadata snapshot
+    User.php                                Spotify tokens, streams, recap token
   Services/
     ListeningAnalyticsService.php           All analytics aggregates
+    RecapService.php                        Recap story data
+    RecapImageService.php                   GD Open Graph card
     SpotifyCacheService.php                 TTL cache + stale fallback
     SpotifyService.php                      Spotify Web API client
-    StreamSyncService.php                   Persist plays, backfill, artist snapshot
+    StreamSyncService.php                   Persist plays, backfill, track + artist snapshots
 
 database/migrations/
   ..._create_streams_table.php
   ..._create_artists_table.php
+  ..._create_tracks_table.php
   ..._add_analytics_columns_to_streams_table.php
+  ..._add_recap_to_users_table.php
 
 resources/js/
   app.js                                    Inertia boot + timezone cookie
-  Layouts/AuthenticatedLayout.vue           Navigation (Dashboard, Analytics, Profile)
+  Layouts/AuthenticatedLayout.vue           Navigation (Dashboard, Analytics, Recap, Profile)
   Components/Chart.vue                      Chart.js wrapper (line and bar)
+  Components/RecapStory.vue                 Recap sections, export, share controls
   chartTheme.js                             Shared chart palette, grid, and tooltip styling
   pages/Dashboard.vue                       Live Spotify stats
   pages/Analytics.vue                       Stored-data analytics
+  pages/Recap.vue                           Owner and public recap shell
   pages/Welcome.vue                         Landing page
 
 routes/
-  web.php                                   Dashboard, analytics, OAuth, profile
+  web.php                                   Dashboard, analytics, recap, OAuth, profile
   console.php                               spotify:sync schedule
 
 tests/Feature/

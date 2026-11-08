@@ -35,6 +35,21 @@
 
         <!-- Scripts -->
         @routes
+
+        @if (! empty($page['props']['og']))
+            <meta property="og:type" content="website">
+            <meta property="og:site_name" content="{{ config('app.name', 'Spotify Stats') }}">
+            <meta property="og:title" content="{{ $page['props']['og']['title'] }}">
+            <meta property="og:description" content="{{ $page['props']['og']['description'] }}">
+            <meta property="og:image" content="{{ $page['props']['og']['image'] }}">
+            <meta property="og:image:width" content="1200">
+            <meta property="og:image:height" content="630">
+            <meta name="twitter:card" content="summary_large_image">
+            <meta name="twitter:title" content="{{ $page['props']['og']['title'] }}">
+            <meta name="twitter:description" content="{{ $page['props']['og']['description'] }}">
+            <meta name="twitter:image" content="{{ $page['props']['og']['image'] }}">
+        @endif
+
         @vite(['resources/js/app.js', "resources/js/pages/{$page['component']}.vue"])
         @inertiaHead
     </head>
