@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\SpotifyService;
+use App\Services\StreamSyncService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -40,7 +41,7 @@ class SpotifyController extends Controller
      * For guest logins a local account is found (or created) and logged in.
      * For authenticated users the tokens are linked to their account.
      */
-    public function callback(Request $request, SpotifyService $spotify): RedirectResponse
+    public function callback(Request $request, SpotifyService $spotify, StreamSyncService $streams): RedirectResponse
     {
         $expectedState = $request->session()->pull('spotify_oauth_state');
         $intent = $request->session()->pull('spotify_oauth_intent', self::INTENT_CONNECT);
@@ -67,6 +68,7 @@ class SpotifyController extends Controller
                 $user = $this->findOrCreateUser($profile);
 
                 $this->linkSpotifyAccount($user, $tokens, $profile);
+                $this->syncStreams($streams, $user);
 
                 Auth::login($user, remember: true);
                 $request->session()->regenerate();
@@ -81,6 +83,7 @@ class SpotifyController extends Controller
             }
 
             $this->linkSpotifyAccount($user, $tokens, $profile);
+            $this->syncStreams($streams, $user);
         } catch (Throwable $exception) {
             report($exception);
 
@@ -145,6 +148,20 @@ class SpotifyController extends Controller
             'spotify_refresh_token' => $tokens['refresh_token'] ?? $user->spotify_refresh_token,
             'spotify_token_expires_at' => now()->addSeconds((int) ($tokens['expires_in'] ?? 3600)),
         ])->save();
+    }
+
+    /**
+     * Seed the listening history right after the account is linked.
+     *
+     * A failure here must not block the login or connection flow.
+     */
+    private function syncStreams(StreamSyncService $streams, User $user): void
+    {
+        try {
+            $streams->sync($user);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 
     /**

@@ -52,6 +52,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Page discovery fallbacks
+    |--------------------------------------------------------------------------
+    |
+    | These flat keys are used by inertia-laravel 2.x when locating page
+    | components for assertInertia() assertions.
+    |
+    */
+
+    'page_paths' => [
+        resource_path('js/pages'),
+    ],
+
+    'page_extensions' => [
+        'js',
+        'jsx',
+        'svelte',
+        'ts',
+        'tsx',
+        'vue',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Testing
     |--------------------------------------------------------------------------
     |
@@ -64,6 +87,19 @@ return [
     'testing' => [
 
         'ensure_pages_exist' => true,
+
+        'page_paths' => [
+            resource_path('js/pages'),
+        ],
+
+        'page_extensions' => [
+            'js',
+            'jsx',
+            'svelte',
+            'ts',
+            'tsx',
+            'vue',
+        ],
 
     ],
 

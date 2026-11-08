@@ -16,6 +16,10 @@ const props = defineProps({
         type: String,
         default: null,
     },
+    spotifyStale: {
+        type: Boolean,
+        default: false,
+    },
     currentlyPlaying: {
         type: Object,
         default: null,
@@ -148,6 +152,28 @@ function formatPlayedAt(value) {
                 class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-200"
             >
                 {{ spotifyError }}
+            </div>
+
+            <div
+                v-else-if="spotifyStale"
+                class="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-200"
+            >
+                <svg
+                    class="mt-0.5 h-4 w-4 shrink-0"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    aria-hidden="true"
+                >
+                    <path
+                        fill-rule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-11.5a.75.75 0 00-1.5 0v4a.75.75 0 001.5 0v-4zM10 14a1 1 0 100-2 1 1 0 000 2z"
+                        clip-rule="evenodd"
+                    />
+                </svg>
+                <span>
+                    Spotify could not be reached, so we are showing your last
+                    saved snapshot. We will refresh it automatically.
+                </span>
             </div>
 
             <!-- Not connected -->

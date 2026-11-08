@@ -42,4 +42,17 @@ class UserFactory extends Factory
             'email_verified_at' => null,
         ]);
     }
+
+    /**
+     * Indicate that the user has linked a Spotify account with valid tokens.
+     */
+    public function connectedToSpotify(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'spotify_id' => 'spotify-'.fake()->unique()->numerify('###############'),
+            'spotify_access_token' => 'access-token',
+            'spotify_refresh_token' => 'refresh-token',
+            'spotify_token_expires_at' => now()->addHour(),
+        ]);
+    }
 }
