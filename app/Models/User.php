@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Services\SpotifyService;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -24,6 +25,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $spotify_access_token
  * @property string|null $spotify_refresh_token
  * @property Carbon|null $spotify_token_expires_at
+ * @property string|null $spotify_scopes
  * @property string|null $recap_token
  * @property string|null $recap_timezone
  * @property Carbon|null $created_at
@@ -42,6 +44,15 @@ class User extends Authenticatable
     public function isConnectedToSpotify(): bool
     {
         return filled($this->spotify_refresh_token);
+    }
+
+    /**
+     * Determine if the user granted access to create private playlists.
+     */
+    public function hasPlaylistScope(): bool
+    {
+        return $this->isConnectedToSpotify()
+            && str_contains((string) $this->spotify_scopes, SpotifyService::PLAYLIST_SCOPE);
     }
 
     /**

@@ -55,4 +55,14 @@ class UserFactory extends Factory
             'spotify_token_expires_at' => now()->addHour(),
         ]);
     }
+
+    /**
+     * Indicate that the user granted Spotify access to create private playlists.
+     */
+    public function withPlaylistScope(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'spotify_scopes' => 'user-read-email user-top-read playlist-modify-private',
+        ]);
+    }
 }

@@ -75,6 +75,12 @@ const initials = computed(() => {
                                 Recap
                             </NavLink>
                             <NavLink
+                                :href="route('playlists.index')"
+                                :active="route().current('playlists.*')"
+                            >
+                                Playlists
+                            </NavLink>
+                            <NavLink
                                 :href="route('profile.edit')"
                                 :active="route().current('profile.edit')"
                             >
@@ -238,6 +244,13 @@ const initials = computed(() => {
                         @click="showingNavigationDropdown = false"
                     >
                         Recap
+                    </ResponsiveNavLink>
+                    <ResponsiveNavLink
+                        :href="route('playlists.index')"
+                        :active="route().current('playlists.*')"
+                        @click="showingNavigationDropdown = false"
+                    >
+                        Playlists
                     </ResponsiveNavLink>
                     <ResponsiveNavLink
                         :href="route('profile.edit')"

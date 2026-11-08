@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\PlaylistController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicRecapController;
 use App\Http\Controllers\RecapController;
@@ -30,6 +31,18 @@ Route::get('/analytics', AnalyticsController::class)
 Route::get('/recap', [RecapController::class, 'show'])
     ->middleware(['auth', 'verified'])
     ->name('recap');
+
+Route::get('/playlists', [PlaylistController::class, 'index'])
+    ->middleware(['auth', 'verified'])
+    ->name('playlists.index');
+
+Route::post('/playlists/top-tracks', [PlaylistController::class, 'topTracks'])
+    ->middleware(['auth', 'verified'])
+    ->name('playlists.top-tracks');
+
+Route::post('/playlists/forgotten', [PlaylistController::class, 'forgotten'])
+    ->middleware(['auth', 'verified'])
+    ->name('playlists.forgotten');
 
 Route::get('/u/{token}', [PublicRecapController::class, 'show'])->name('recap.public');
 Route::get('/u/{token}/og.png', [PublicRecapController::class, 'image'])->name('recap.image');

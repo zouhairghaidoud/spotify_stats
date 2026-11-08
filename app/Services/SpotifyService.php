@@ -14,7 +14,12 @@ class SpotifyService
     private const API_URL = 'https://api.spotify.com/v1';
 
     /**
-     * The scopes required by the dashboard.
+     * Scope required to create private playlists.
+     */
+    public const PLAYLIST_SCOPE = 'playlist-modify-private';
+
+    /**
+     * The scopes requested during authorization.
      *
      * @var list<string>
      */
@@ -23,6 +28,7 @@ class SpotifyService
         'user-top-read',
         'user-read-recently-played',
         'user-read-currently-playing',
+        self::PLAYLIST_SCOPE,
     ];
 
     /**
@@ -71,11 +77,17 @@ class SpotifyService
             'refresh_token' => $refreshToken,
         ]);
 
-        $user->forceFill([
+        $attributes = [
             'spotify_access_token' => $tokens['access_token'],
             'spotify_refresh_token' => $tokens['refresh_token'] ?? $refreshToken,
             'spotify_token_expires_at' => now()->addSeconds((int) ($tokens['expires_in'] ?? 3600)),
-        ])->save();
+        ];
+
+        if (isset($tokens['scope'])) {
+            $attributes['spotify_scopes'] = (string) $tokens['scope'];
+        }
+
+        $user->forceFill($attributes)->save();
     }
 
     /**
@@ -155,6 +167,40 @@ class SpotifyService
     }
 
     /**
+     * Create an empty private playlist for the current Spotify user.
+     *
+     * The old `POST /users/{user_id}/playlists` endpoint was removed in
+     * Spotify's February 2026 Web API changes; `POST /me/playlists` replaces it.
+     *
+     * @return array<string, mixed>
+     */
+    public function createPlaylist(User $user, string $name, string $description): array
+    {
+        return $this->postJson($user, '/me/playlists', [
+            'name' => $name,
+            'description' => $description,
+            'public' => false,
+        ])->throw()->json();
+    }
+
+    /**
+     * Append tracks to a playlist, sending Spotify's maximum of 100 URIs per
+     * request. `POST /playlists/{id}/tracks` was removed in February 2026.
+     *
+     * @param  list<string>  $uris
+     */
+    public function addTracksToPlaylist(User $user, string $playlistId, array $uris): void
+    {
+        $uris = array_values(array_unique(array_filter($uris)));
+
+        foreach (array_chunk($uris, 100) as $chunk) {
+            $this->postJson($user, '/playlists/'.rawurlencode($playlistId).'/items', [
+                'uris' => $chunk,
+            ])->throw();
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $query
      * @return array<string, mixed>|null
      */
@@ -182,6 +228,28 @@ class SpotifyService
         return Http::withToken($this->accessToken($user))
             ->acceptJson()
             ->get(self::API_URL.$path, $query);
+    }
+
+    /**
+     * Send a JSON POST, retrying once after a token refresh on 401.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function postJson(User $user, string $path, array $payload): Response
+    {
+        $response = Http::withToken($this->accessToken($user))
+            ->acceptJson()
+            ->post(self::API_URL.$path, $payload);
+
+        if ($response->status() === 401) {
+            $this->refreshAccessToken($user);
+
+            $response = Http::withToken($this->accessToken($user))
+                ->acceptJson()
+                ->post(self::API_URL.$path, $payload);
+        }
+
+        return $response;
     }
 
     /**

@@ -147,6 +147,9 @@ class SpotifyController extends Controller
             'spotify_access_token' => $tokens['access_token'],
             'spotify_refresh_token' => $tokens['refresh_token'] ?? $user->spotify_refresh_token,
             'spotify_token_expires_at' => now()->addSeconds((int) ($tokens['expires_in'] ?? 3600)),
+            'spotify_scopes' => isset($tokens['scope'])
+                ? (string) $tokens['scope']
+                : $user->spotify_scopes,
         ])->save();
     }
 
