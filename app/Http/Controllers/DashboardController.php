@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ProvidesSpotifyApp;
 use App\Models\User;
+use App\Services\HistoryImportService;
 use App\Services\SpotifyCacheService;
 use App\Services\SpotifyService;
 use App\Services\StreamSyncService;
@@ -15,6 +17,8 @@ use Throwable;
 
 class DashboardController extends Controller
 {
+    use ProvidesSpotifyApp;
+
     /**
      * Display the dashboard with either the connect prompt or live Spotify stats.
      */
@@ -23,12 +27,19 @@ class DashboardController extends Controller
         SpotifyService $spotify,
         SpotifyCacheService $cache,
         StreamSyncService $streams,
+        HistoryImportService $imports,
     ): Response {
         $user = $request->user();
+
+        $shared = [
+            'spotifyApp' => $this->spotifyAppProps($user),
+            'importSummary' => $imports->summary($user),
+        ];
 
         if (! $user->isConnectedToSpotify()) {
             return Inertia::render('Dashboard', [
                 'connected' => false,
+                ...$shared,
             ]);
         }
 
@@ -49,6 +60,7 @@ class DashboardController extends Controller
             'topTracks' => [],
             'topArtists' => [],
             'recentlyPlayed' => [],
+            ...$shared,
         ];
 
         $resources = [

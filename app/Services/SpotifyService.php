@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Models\User;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 class SpotifyService
 {
@@ -33,11 +35,14 @@ class SpotifyService
 
     /**
      * Build the Spotify authorization URL the user should be redirected to.
+     *
+     * A signed-in user with their own developer app uses those credentials;
+     * guests always use the application default so `/login` keeps working.
      */
-    public function authorizationUrl(string $state): string
+    public function authorizationUrl(string $state, ?User $user = null): string
     {
         $query = http_build_query([
-            'client_id' => $this->clientId(),
+            'client_id' => $this->clientId($user),
             'response_type' => 'code',
             'redirect_uri' => $this->redirectUri(),
             'scope' => implode(' ', self::SCOPES),
@@ -52,13 +57,13 @@ class SpotifyService
      *
      * @return array<string, mixed>
      */
-    public function exchangeCode(string $code): array
+    public function exchangeCode(string $code, ?User $user = null): array
     {
         return $this->requestToken([
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->redirectUri(),
-        ]);
+        ], $user);
     }
 
     /**
@@ -75,7 +80,7 @@ class SpotifyService
         $tokens = $this->requestToken([
             'grant_type' => 'refresh_token',
             'refresh_token' => $refreshToken,
-        ]);
+        ], $user);
 
         $attributes = [
             'spotify_access_token' => $tokens['access_token'],
@@ -280,10 +285,10 @@ class SpotifyService
      * @param  array<string, string>  $payload
      * @return array<string, mixed>
      */
-    private function requestToken(array $payload): array
+    private function requestToken(array $payload, ?User $user = null): array
     {
         return Http::asForm()
-            ->withBasicAuth($this->clientId(), $this->clientSecret())
+            ->withBasicAuth($this->clientId($user), $this->clientSecret($user))
             ->acceptJson()
             ->post(self::ACCOUNTS_URL.'/api/token', $payload)
             ->throw()
@@ -302,13 +307,121 @@ class SpotifyService
         return max(1, min($limit, 50));
     }
 
-    private function clientId(): string
+    /**
+     * Get an app-level token with the Client Credentials flow.
+     *
+     * This flow is not limited by the five-user Development Mode allowlist, so
+     * imported history can be enriched without every user connecting OAuth.
+     */
+    public function clientCredentialsToken(): string
     {
+        $clientId = $this->clientId();
+        $clientSecret = $this->clientSecret();
+
+        if ($clientId === '' || $clientSecret === '') {
+            throw new RuntimeException('No Spotify app credentials are configured.');
+        }
+
+        $key = 'spotify:client-credentials:'.sha1($clientId);
+
+        return Cache::remember($key, now()->addMinutes(55), function () use ($clientId, $clientSecret): string {
+            $tokens = Http::asForm()
+                ->withBasicAuth($clientId, $clientSecret)
+                ->acceptJson()
+                ->post(self::ACCOUNTS_URL.'/api/token', ['grant_type' => 'client_credentials'])
+                ->throw()
+                ->json();
+
+            return (string) ($tokens['access_token'] ?? '');
+        });
+    }
+
+    /**
+     * Look up full track metadata by id, 50 ids per request.
+     *
+     * Failed chunks are skipped so a partial enrichment still succeeds.
+     *
+     * @param  list<string>  $trackIds
+     * @return array<string, array<string, mixed>>
+     */
+    public function lookupTracks(array $trackIds): array
+    {
+        $trackIds = array_values(array_unique(array_filter($trackIds)));
+        $tracks = [];
+
+        if ($trackIds === []) {
+            return $tracks;
+        }
+
+        $token = $this->clientCredentialsToken();
+
+        foreach (array_chunk($trackIds, 50) as $chunk) {
+            try {
+                $response = Http::withToken($token)
+                    ->acceptJson()
+                    ->get(self::API_URL.'/tracks', ['ids' => implode(',', $chunk)]);
+
+                if ($response->status() === 401) {
+                    Cache::forget('spotify:client-credentials:'.sha1($this->clientId()));
+                    $token = $this->clientCredentialsToken();
+
+                    $response = Http::withToken($token)
+                        ->acceptJson()
+                        ->get(self::API_URL.'/tracks', ['ids' => implode(',', $chunk)]);
+                }
+
+                if (! $response->successful()) {
+                    continue;
+                }
+
+                foreach ((array) ($response->json('tracks') ?? []) as $track) {
+                    if (is_array($track) && filled($track['id'] ?? null)) {
+                        $tracks[(string) $track['id']] = $track;
+                    }
+                }
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
+
+        return $tracks;
+    }
+
+    /**
+     * Fetch public track metadata from Spotify's oEmbed endpoint.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function lookupTrackViaOembed(string $trackId): ?array
+    {
+        try {
+            $response = Http::acceptJson()->get('https://open.spotify.com/oembed', [
+                'url' => 'spotify:track:'.$trackId,
+            ]);
+
+            return $response->successful() ? $response->json() : null;
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return null;
+        }
+    }
+
+    private function clientId(?User $user = null): string
+    {
+        if ($user !== null && $user->hasCustomSpotifyApp()) {
+            return (string) $user->spotify_client_id;
+        }
+
         return (string) config('services.spotify.client_id');
     }
 
-    private function clientSecret(): string
+    private function clientSecret(?User $user = null): string
     {
+        if ($user !== null && $user->hasCustomSpotifyApp()) {
+            return (string) $user->spotify_client_secret;
+        }
+
         return (string) config('services.spotify.client_secret');
     }
 

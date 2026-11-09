@@ -1,5 +1,6 @@
 <script setup>
 import Chart from '@/Components/Chart.vue';
+import HistoryImport from '@/Components/HistoryImport.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import {
     chartColors,
@@ -8,8 +9,8 @@ import {
     chartTickColor,
     chartTooltip,
 } from '@/chartTheme';
-import { Head, Link } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { Head, Link, router } from '@inertiajs/vue3';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 const props = defineProps({
     spotifyConnected: {
@@ -24,9 +25,25 @@ const props = defineProps({
         type: Object,
         required: true,
     },
-    topGenres: {
+    top_genres: {
         type: Array,
         default: () => [],
+    },
+    tracks_leaderboard: {
+        type: Array,
+        default: () => [],
+    },
+    search: {
+        type: String,
+        default: '',
+    },
+    importSummary: {
+        type: Object,
+        default: () => ({
+            imported_plays: 0,
+            total_plays: 0,
+            last_imported_at: null,
+        }),
     },
     heatmap: {
         type: Object,
@@ -56,8 +73,48 @@ const hourLabels = [0, 6, 12, 18];
 const hasPlays = computed(() => props.overview.plays > 0);
 
 const maxGenrePlays = computed(() =>
-    Math.max(1, ...props.topGenres.map((genre) => genre.plays)),
+    Math.max(1, ...props.top_genres.map((genre) => genre.plays)),
 );
+
+const searchTerm = ref(props.search ?? '');
+let searchTimer = null;
+
+watch(
+    () => props.search,
+    (value) => {
+        searchTerm.value = value ?? '';
+    },
+);
+
+watch(searchTerm, (value) => {
+    if (searchTimer) {
+        clearTimeout(searchTimer);
+    }
+
+    searchTimer = window.setTimeout(() => {
+        const search = value.trim();
+
+        if (search === (props.search ?? '')) {
+            return;
+        }
+
+        router.get(
+            route('analytics'),
+            search === '' ? {} : { search },
+            {
+                preserveState: true,
+                preserveScroll: true,
+                replace: true,
+            },
+        );
+    }, 350);
+});
+
+onBeforeUnmount(() => {
+    if (searchTimer) {
+        clearTimeout(searchTimer);
+    }
+});
 
 const discoveryPercent = computed(() => Math.round(props.discovery.rate * 100));
 
@@ -400,23 +457,30 @@ function cellLabel(dayIndex, hour, count) {
                 <p class="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-300">
                     Analytics are computed from plays we have already stored.
                     Once you listen to a few tracks, your totals, genres, and
-                    heatmap appear here.
+                    heatmap appear here. You can also upload a Spotify data
+                    export to unlock your full listening history instantly.
                 </p>
 
-                <a
-                    v-if="!spotifyConnected"
-                    :href="route('spotify.redirect')"
-                    class="mt-7 inline-flex items-center gap-2 rounded-full bg-brand-500 px-6 py-3 text-sm font-bold text-ink-950 shadow-lg shadow-brand-500/20 transition hover:bg-brand-400"
-                >
-                    Connect with Spotify
-                </a>
-                <Link
-                    v-else
-                    :href="route('dashboard')"
-                    class="mt-7 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08]"
-                >
-                    Back to dashboard
-                </Link>
+                <div class="mt-7 flex flex-wrap items-center justify-center gap-3">
+                    <a
+                        v-if="!spotifyConnected"
+                        :href="route('spotify.redirect')"
+                        class="inline-flex items-center gap-2 rounded-full bg-brand-500 px-6 py-3 text-sm font-bold text-ink-950 shadow-lg shadow-brand-500/20 transition hover:bg-brand-400"
+                    >
+                        Connect with Spotify
+                    </a>
+                    <Link
+                        v-else
+                        :href="route('dashboard')"
+                        class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08]"
+                    >
+                        Back to dashboard
+                    </Link>
+                </div>
+            </section>
+
+            <section v-if="!hasPlays" class="surface-card p-5 sm:p-6">
+                <HistoryImport :summary="importSummary" />
             </section>
 
             <template v-else>
@@ -677,16 +741,16 @@ function cellLabel(dayIndex, hour, count) {
                             </p>
                         </div>
                         <span
-                            v-if="topGenres.length"
+                            v-if="top_genres.length"
                             class="rounded-full bg-white/5 px-2.5 py-1 text-xs font-semibold text-ink-300"
                         >
-                            Top {{ topGenres.length }}
+                            Top {{ top_genres.length }}
                         </span>
                     </header>
 
-                    <ol v-if="topGenres.length" class="space-y-3 px-5 py-5">
+                    <ol v-if="top_genres.length" class="space-y-3 px-5 py-5">
                         <li
-                            v-for="genre in topGenres"
+                            v-for="genre in top_genres"
                             :key="genre.genre"
                             class="grid grid-cols-[minmax(0,9rem)_1fr_auto] items-center gap-3"
                         >
@@ -717,6 +781,102 @@ function cellLabel(dayIndex, hour, count) {
                         Spotify no longer exposes artist genres to new apps, so
                         genre totals are unavailable. Every other number on this
                         page is unaffected.
+                    </p>
+                </section>
+
+                <!-- Song play count explorer -->
+                <section class="surface-card overflow-hidden">
+                    <header
+                        class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4"
+                    >
+                        <div>
+                            <h2 class="text-base font-bold text-white">
+                                Song play counts
+                            </h2>
+                            <p class="mt-0.5 text-xs text-ink-400">
+                                Every song you have played, ranked by exact play
+                                count
+                            </p>
+                        </div>
+
+                        <label class="relative w-full max-w-xs">
+                            <span class="sr-only">Search songs or artists</span>
+                            <input
+                                v-model="searchTerm"
+                                type="search"
+                                placeholder="Search a song or artist…"
+                                class="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm text-white shadow-sm transition placeholder:text-ink-400 focus:border-brand-500/60 focus:bg-white/[0.06] focus:ring-2 focus:ring-brand-500/30"
+                            />
+                        </label>
+                    </header>
+
+                    <ol
+                        v-if="tracks_leaderboard.length"
+                        class="divide-y divide-white/[0.04]"
+                    >
+                        <li
+                            v-for="(track, index) in tracks_leaderboard"
+                            :key="track.spotify_track_id"
+                            class="flex items-center gap-3 px-5 py-3 transition hover:bg-white/[0.02]"
+                        >
+                            <span
+                                class="w-6 shrink-0 text-right text-xs font-semibold tabular-nums text-ink-500"
+                            >
+                                {{ index + 1 }}
+                            </span>
+
+                            <img
+                                v-if="track.album_image_url"
+                                :src="track.album_image_url"
+                                :alt="track.name"
+                                class="h-10 w-10 shrink-0 rounded-lg object-cover"
+                                loading="lazy"
+                            />
+                            <span
+                                v-else
+                                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-ink-500"
+                            >
+                                <svg
+                                    class="h-5 w-5"
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M18 3.5a1 1 0 00-1.2-.98l-9 2A1 1 0 007 5.5v7.35A3 3 0 105 15.5a3 3 0 003-3V8.28l7-1.56v4.13A3 3 0 1017 13.5a3 3 0 003-3V3.5z"
+                                    />
+                                </svg>
+                            </span>
+
+                            <div class="min-w-0 flex-1">
+                                <p class="truncate text-sm font-semibold text-white">
+                                    {{ track.name }}
+                                </p>
+                                <p class="truncate text-xs text-ink-400">
+                                    {{ track.artist_name ?? 'Unknown artist' }}
+                                </p>
+                            </div>
+
+                            <div class="shrink-0 text-right">
+                                <p class="text-sm font-bold tabular-nums text-white">
+                                    {{ formatNumber(track.plays) }}
+                                </p>
+                                <p class="text-xs tabular-nums text-ink-400">
+                                    {{ formatNumber(track.minutes) }} min
+                                </p>
+                            </div>
+                        </li>
+                    </ol>
+
+                    <p
+                        v-else
+                        class="px-5 py-10 text-center text-sm text-ink-400"
+                    >
+                        {{
+                            search
+                                ? `No songs match “${search}” yet.`
+                                : 'No plays recorded yet.'
+                        }}
                     </p>
                 </section>
 

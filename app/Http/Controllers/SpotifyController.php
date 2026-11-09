@@ -32,7 +32,7 @@ class SpotifyController extends Controller
         $request->session()->put('spotify_oauth_state', $state);
         $request->session()->put('spotify_oauth_intent', $intent);
 
-        return redirect()->away($spotify->authorizationUrl($state));
+        return redirect()->away($spotify->authorizationUrl($state, $request->user()));
     }
 
     /**
@@ -61,7 +61,7 @@ class SpotifyController extends Controller
         }
 
         try {
-            $tokens = $spotify->exchangeCode($code);
+            $tokens = $spotify->exchangeCode($code, $request->user());
             $profile = $spotify->getProfile((string) $tokens['access_token']);
 
             if ($intent === self::INTENT_LOGIN) {

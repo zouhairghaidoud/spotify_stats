@@ -1,4 +1,6 @@
 <script setup>
+import HistoryImport from '@/Components/HistoryImport.vue';
+import SpotifyAppForm from '@/Components/SpotifyAppForm.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -35,6 +37,23 @@ const props = defineProps({
     recentlyPlayed: {
         type: Array,
         default: () => [],
+    },
+    spotifyApp: {
+        type: Object,
+        default: () => ({
+            configured: false,
+            client_id: null,
+            redirect_uri: '',
+            env_configured: false,
+        }),
+    },
+    importSummary: {
+        type: Object,
+        default: () => ({
+            imported_plays: 0,
+            total_plays: 0,
+            last_imported_at: null,
+        }),
     },
 });
 
@@ -764,6 +783,19 @@ function formatPlayedAtAbsolute(value) {
                 </section>
                 </div>
             </template>
+
+            <!-- BYOK when Spotify is not connected or the default app failed -->
+            <section
+                v-if="!connected || spotifyError"
+                class="surface-card p-5 sm:p-6"
+            >
+                <SpotifyAppForm :spotify-app="spotifyApp" />
+            </section>
+
+            <!-- History import works with or without Spotify OAuth -->
+            <section class="surface-card p-5 sm:p-6">
+                <HistoryImport :summary="importSummary" />
+            </section>
         </div>
     </AuthenticatedLayout>
 </template>

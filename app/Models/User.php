@@ -26,13 +26,15 @@ use Illuminate\Support\Carbon;
  * @property string|null $spotify_refresh_token
  * @property Carbon|null $spotify_token_expires_at
  * @property string|null $spotify_scopes
+ * @property string|null $spotify_client_id
+ * @property string|null $spotify_client_secret
  * @property string|null $recap_token
  * @property string|null $recap_timezone
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
 #[Fillable(['name', 'email', 'password'])]
-#[Hidden(['password', 'remember_token', 'spotify_access_token', 'spotify_refresh_token'])]
+#[Hidden(['password', 'remember_token', 'spotify_access_token', 'spotify_refresh_token', 'spotify_client_secret'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -44,6 +46,14 @@ class User extends Authenticatable
     public function isConnectedToSpotify(): bool
     {
         return filled($this->spotify_refresh_token);
+    }
+
+    /**
+     * Determine if the user supplied their own Spotify developer app.
+     */
+    public function hasCustomSpotifyApp(): bool
+    {
+        return filled($this->spotify_client_id) && filled($this->spotify_client_secret);
     }
 
     /**
@@ -77,6 +87,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'spotify_access_token' => 'encrypted',
             'spotify_refresh_token' => 'encrypted',
+            'spotify_client_secret' => 'encrypted',
             'spotify_token_expires_at' => 'datetime',
         ];
     }

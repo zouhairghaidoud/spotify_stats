@@ -30,6 +30,8 @@ class ListeningAnalyticsService
      */
     private const DISCOVERY_DAYS = 28;
 
+    private const LEADERBOARD_LIMIT = 50;
+
     /**
      * @return array{
      *     timezone: string,
@@ -45,10 +47,11 @@ class ListeningAnalyticsService
      *     top_genres: array<int, array{genre: string, plays: int}>,
      *     heatmap: array{counts: array<int, array<int, int>>, max: int},
      *     discovery: array{new_artists: int, plays: int, rate: float},
-     *     streaks: array{current: int, longest: int}
+     *     streaks: array{current: int, longest: int},
+     *     tracks_leaderboard: array<int, array{spotify_track_id: string, name: string, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
      * }
      */
-    public function forUser(User $user, ?string $timezone = null): array
+    public function forUser(User $user, ?string $timezone = null, ?string $search = null): array
     {
         $timezone = $this->timezone($timezone);
 
@@ -88,7 +91,51 @@ class ListeningAnalyticsService
             ],
             'discovery' => $this->discovery($user),
             'streaks' => $this->streaks($days, $timezone),
+            'tracks_leaderboard' => $this->tracksLeaderboard($user, $search),
         ];
+    }
+
+    /**
+     * Exact play counts per song, optionally filtered by title or artist.
+     *
+     * @return array<int, array{spotify_track_id: string, name: string, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
+     */
+    private function tracksLeaderboard(User $user, ?string $search): array
+    {
+        $query = $user->streams()
+            ->leftJoin('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
+            ->selectRaw('streams.spotify_track_id as spotify_track_id')
+            ->selectRaw("COALESCE(tracks.name, 'Unknown track') as name")
+            ->selectRaw('tracks.artist_name as artist_name')
+            ->selectRaw('tracks.album_image_url as album_image_url')
+            ->selectRaw('COUNT(*) as plays')
+            ->selectRaw('ROUND(COALESCE(SUM(streams.duration_ms), 0) / 60000.0) as minutes')
+            ->groupBy('streams.spotify_track_id', 'tracks.name', 'tracks.artist_name', 'tracks.album_image_url')
+            ->orderByDesc('plays')
+            ->orderBy('streams.spotify_track_id')
+            ->limit(self::LEADERBOARD_LIMIT);
+
+        if (filled($search)) {
+            $term = '%'.$search.'%';
+
+            $query->where(function ($query) use ($term): void {
+                $query->where('tracks.name', 'like', $term)
+                    ->orWhere('tracks.artist_name', 'like', $term);
+            });
+        }
+
+        return $query
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => [
+                'spotify_track_id' => (string) $row->spotify_track_id,
+                'name' => (string) $row->name,
+                'artist_name' => filled($row->artist_name) ? (string) $row->artist_name : null,
+                'album_image_url' => filled($row->album_image_url) ? (string) $row->album_image_url : null,
+                'plays' => (int) $row->plays,
+                'minutes' => (int) $row->minutes,
+            ])
+            ->all();
     }
 
     /**

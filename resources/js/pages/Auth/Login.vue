@@ -73,6 +73,13 @@ const submit = () => {
             Log in with Spotify
         </a>
 
+        <p class="mt-3 text-xs leading-relaxed text-ink-500">
+            Spotify's Development Mode only allows five allowlisted accounts per
+            app. If Spotify blocks you, create an account with your email below,
+            then connect your own Spotify app or import your listening history
+            from your profile.
+        </p>
+
         <div class="relative my-6">
             <div class="absolute inset-0 flex items-center">
                 <div class="w-full border-t border-white/10"></div>

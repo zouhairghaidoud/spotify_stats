@@ -57,6 +57,17 @@ class UserFactory extends Factory
     }
 
     /**
+     * Indicate that the user supplied their own Spotify developer app.
+     */
+    public function withCustomSpotifyApp(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'spotify_client_id' => 'custom-client-'.fake()->unique()->numerify('######'),
+            'spotify_client_secret' => 'custom-secret-'.fake()->unique()->numerify('######'),
+        ]);
+    }
+
+    /**
      * Indicate that the user granted Spotify access to create private playlists.
      */
     public function withPlaylistScope(): static

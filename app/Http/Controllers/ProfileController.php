@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ProvidesSpotifyApp;
 use App\Http\Requests\ProfileUpdateRequest;
+use App\Services\HistoryImportService;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,14 +15,20 @@ use Inertia\Response;
 
 class ProfileController extends Controller
 {
+    use ProvidesSpotifyApp;
+
     /**
      * Display the user's profile form.
      */
-    public function edit(Request $request): Response
+    public function edit(Request $request, HistoryImportService $imports): Response
     {
+        $user = $request->user();
+
         return Inertia::render('Profile/Edit', [
-            'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
+            'mustVerifyEmail' => $user instanceof MustVerifyEmail,
             'status' => session('status'),
+            'spotifyApp' => $this->spotifyAppProps($user),
+            'importSummary' => $imports->summary($user),
         ]);
     }
 

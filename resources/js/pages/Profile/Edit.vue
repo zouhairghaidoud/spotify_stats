@@ -1,4 +1,6 @@
 <script setup>
+import HistoryImport from '@/Components/HistoryImport.vue';
+import SpotifyAppForm from '@/Components/SpotifyAppForm.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import DeleteUserForm from './Partials/DeleteUserForm.vue';
 import UpdatePasswordForm from './Partials/UpdatePasswordForm.vue';
@@ -11,6 +13,23 @@ defineProps({
     },
     status: {
         type: String,
+    },
+    spotifyApp: {
+        type: Object,
+        default: () => ({
+            configured: false,
+            client_id: null,
+            redirect_uri: '',
+            env_configured: false,
+        }),
+    },
+    importSummary: {
+        type: Object,
+        default: () => ({
+            imported_plays: 0,
+            total_plays: 0,
+            last_imported_at: null,
+        }),
     },
 });
 </script>
@@ -32,7 +51,8 @@ defineProps({
                     Profile
                 </h1>
                 <p class="mt-1 text-sm text-ink-300">
-                    Manage your account details, password, and data.
+                    Manage your account details, Spotify app, history import,
+                    password, and data.
                 </p>
             </div>
         </template>
@@ -44,6 +64,14 @@ defineProps({
                     :status="status"
                     class="max-w-xl"
                 />
+            </section>
+
+            <section class="surface-card p-6 sm:p-8">
+                <SpotifyAppForm :spotify-app="spotifyApp" />
+            </section>
+
+            <section class="surface-card p-6 sm:p-8">
+                <HistoryImport :summary="importSummary" />
             </section>
 
             <section class="surface-card p-6 sm:p-8">

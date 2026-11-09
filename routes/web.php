@@ -2,11 +2,13 @@
 
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ImportController;
 use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PlaylistController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicRecapController;
 use App\Http\Controllers\RecapController;
+use App\Http\Controllers\SpotifyAppController;
 use App\Http\Controllers\SpotifyController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
@@ -32,6 +34,10 @@ Route::get('/analytics', AnalyticsController::class)
 Route::get('/recap', [RecapController::class, 'show'])
     ->middleware(['auth', 'verified'])
     ->name('recap');
+
+Route::post('/import', [ImportController::class, 'store'])
+    ->middleware(['auth', 'verified'])
+    ->name('import.store');
 
 Route::get('/now-playing', NowPlayingController::class)
     ->middleware(['auth', 'verified'])
@@ -62,6 +68,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    Route::post('/profile/spotify-app', [SpotifyAppController::class, 'update'])
+        ->name('profile.spotify-app.update');
+    Route::delete('/profile/spotify-app', [SpotifyAppController::class, 'destroy'])
+        ->name('profile.spotify-app.destroy');
 });
 
 require __DIR__.'/auth.php';
