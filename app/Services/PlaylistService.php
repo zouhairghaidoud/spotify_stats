@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 /**
  * Turns listening data into private Spotify playlists.
@@ -133,7 +134,7 @@ class PlaylistService
      */
     public function forgottenFavorites(User $user, int $limit = self::FORGOTTEN_LIMIT): array
     {
-        $cutoff = now()->subDays(self::FORGOTTEN_DAYS);
+        $cutoff = now()->subDays(self::FORGOTTEN_DAYS)->utc();
 
         $rows = $user->streams()
             ->selectRaw('spotify_track_id, COUNT(*) as plays, MAX(played_at) as last_played')
@@ -188,7 +189,13 @@ class PlaylistService
             throw new RuntimeException('Spotify did not return a playlist id.');
         }
 
-        $this->spotify->addTracksToPlaylist($user, $id, $uris);
+        try {
+            $this->spotify->addTracksToPlaylist($user, $id, $uris);
+        } catch (Throwable $exception) {
+            $this->deleteOrphanedPlaylist($user, $id);
+
+            throw $exception;
+        }
 
         return [
             'id' => $id,
@@ -196,5 +203,19 @@ class PlaylistService
             'url' => (string) (data_get($playlist, 'external_urls.spotify') ?? 'https://open.spotify.com/playlist/'.$id),
             'track_count' => count(array_unique($uris)),
         ];
+    }
+
+    /**
+     * Remove an empty playlist when its tracks could not be added.
+     *
+     * A cleanup failure must never mask the original error.
+     */
+    private function deleteOrphanedPlaylist(User $user, string $playlistId): void
+    {
+        try {
+            $this->spotify->deletePlaylist($user, $playlistId);
+        } catch (Throwable $cleanupException) {
+            report($cleanupException);
+        }
     }
 }

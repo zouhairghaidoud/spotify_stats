@@ -201,6 +201,30 @@ class SpotifyService
     }
 
     /**
+     * Remove a playlist from the user's library (unfollow it).
+     *
+     * Used to clean up an empty playlist when adding its tracks failed.
+     */
+    public function deletePlaylist(User $user, string $playlistId): void
+    {
+        $url = self::API_URL.'/playlists/'.rawurlencode($playlistId).'/followers';
+
+        $response = Http::withToken($this->accessToken($user))
+            ->acceptJson()
+            ->delete($url);
+
+        if ($response->status() === 401) {
+            $this->refreshAccessToken($user);
+
+            $response = Http::withToken($this->accessToken($user))
+                ->acceptJson()
+                ->delete($url);
+        }
+
+        $response->throw();
+    }
+
+    /**
      * @param  array<string, mixed>  $query
      * @return array<string, mixed>|null
      */

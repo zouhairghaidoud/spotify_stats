@@ -26,6 +26,11 @@ class ListeningAnalyticsService
     private const COMPARISON_ARTISTS = 5;
 
     /**
+     * Window used to decide whether an artist was recently discovered.
+     */
+    private const DISCOVERY_DAYS = 28;
+
+    /**
      * @return array{
      *     timezone: string,
      *     overview: array{
@@ -81,12 +86,40 @@ class ListeningAnalyticsService
                 'counts' => $heatmap,
                 'max' => $this->heatmapMax($heatmap),
             ],
-            'discovery' => [
-                'new_artists' => $uniqueArtists,
-                'plays' => $plays,
-                'rate' => $plays > 0 ? round($uniqueArtists / $plays, 4) : 0.0,
-            ],
+            'discovery' => $this->discovery($user),
             'streaks' => $this->streaks($days, $timezone),
+        ];
+    }
+
+    /**
+     * Share of recent plays that introduced an artist for the first time.
+     *
+     * Only artists whose very first stored play happened inside the discovery
+     * window count, so a long-time favorite is never reported as new again.
+     *
+     * @return array{new_artists: int, plays: int, rate: float}
+     */
+    private function discovery(User $user): array
+    {
+        $windowStart = now()->subDays(self::DISCOVERY_DAYS);
+
+        $plays = (int) $user->streams()
+            ->where('played_at', '>=', $windowStart)
+            ->count();
+
+        $newArtists = $user->streams()
+            ->whereNotNull('artist_id')
+            ->selectRaw('artist_id, MIN(played_at) as first_played')
+            ->groupBy('artist_id')
+            ->havingRaw('MIN(played_at) >= ?', [$windowStart->copy()->utc()->format('Y-m-d H:i:s')])
+            ->toBase()
+            ->get()
+            ->count();
+
+        return [
+            'new_artists' => $newArtists,
+            'plays' => $plays,
+            'rate' => $plays > 0 ? round($newArtists / $plays, 4) : 0.0,
         ];
     }
 

@@ -114,6 +114,23 @@ it('reports the share of plays that introduced a new artist', function () {
         ->and($discovery['rate'])->toBe(0.6667);
 });
 
+it('does not count artists first heard before the discovery window as new', function () {
+    $this->travelTo('2026-11-08 12:00:00');
+
+    $user = User::factory()->create();
+
+    // First heard long ago, so not newly discovered this month.
+    storePlay($user, 't-old', '2026-09-01 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't-recent', '2026-11-05 10:00:00', 180000, 'artist-1');
+    storePlay($user, 't-new', '2026-11-06 10:00:00', 180000, 'artist-2');
+
+    $discovery = app(ListeningAnalyticsService::class)->forUser($user, 'UTC')['discovery'];
+
+    expect($discovery['plays'])->toBe(2)
+        ->and($discovery['new_artists'])->toBe(1)
+        ->and($discovery['rate'])->toBe(0.5);
+});
+
 it('returns zeroed analytics for a user without plays', function () {
     $user = User::factory()->create();
 

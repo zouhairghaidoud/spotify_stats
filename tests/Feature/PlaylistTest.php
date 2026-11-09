@@ -213,6 +213,27 @@ it('creates a playlist from forgotten favorites', function () {
         && $request['uris'] === ['spotify:track:track-a', 'spotify:track:track-b']);
 });
 
+it('removes the empty playlist when adding its tracks fails', function () {
+    $user = User::factory()->connectedToSpotify()->withPlaylistScope()->create();
+
+    Http::fake([
+        'api.spotify.com/v1/me/top/tracks*' => Http::response(['items' => [
+            ['id' => 'track-a', 'uri' => 'spotify:track:track-a'],
+        ]]),
+        'api.spotify.com/v1/me/playlists' => Http::response(['id' => 'playlist-1'], 201),
+        'api.spotify.com/v1/playlists/*/items' => Http::response([], 500),
+        'api.spotify.com/v1/playlists/*/followers' => Http::response([], 200),
+    ]);
+
+    $this->actingAs($user)
+        ->post('/playlists/top-tracks', ['range' => 'short_term'])
+        ->assertRedirect(route('playlists.index'))
+        ->assertSessionHas('error');
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'DELETE'
+        && str_ends_with($request->url(), '/playlists/playlist-1/followers'));
+});
+
 it('refuses to create playlists without the playlist scope', function () {
     Http::preventStrayRequests();
 
