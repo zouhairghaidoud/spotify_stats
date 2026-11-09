@@ -48,7 +48,7 @@ class ListeningAnalyticsService
      *     heatmap: array{counts: array<int, array<int, int>>, max: int},
      *     discovery: array{new_artists: int, plays: int, rate: float},
      *     streaks: array{current: int, longest: int},
-     *     tracks_leaderboard: array<int, array{spotify_track_id: string, name: string, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
+     *     tracks_leaderboard: array<int, array{spotify_track_id: string, name: string, artist_id: string|null, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
      * }
      */
     public function forUser(User $user, ?string $timezone = null, ?string $search = null): array
@@ -98,7 +98,7 @@ class ListeningAnalyticsService
     /**
      * Exact play counts per song, optionally filtered by title or artist.
      *
-     * @return array<int, array{spotify_track_id: string, name: string, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
+     * @return array<int, array{spotify_track_id: string, name: string, artist_id: string|null, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
      */
     private function tracksLeaderboard(User $user, ?string $search): array
     {
@@ -106,11 +106,12 @@ class ListeningAnalyticsService
             ->leftJoin('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
             ->selectRaw('streams.spotify_track_id as spotify_track_id')
             ->selectRaw("COALESCE(tracks.name, 'Unknown track') as name")
+            ->selectRaw('tracks.artist_id as artist_id')
             ->selectRaw('tracks.artist_name as artist_name')
             ->selectRaw('tracks.album_image_url as album_image_url')
             ->selectRaw('COUNT(*) as plays')
             ->selectRaw('ROUND(COALESCE(SUM(streams.duration_ms), 0) / 60000.0) as minutes')
-            ->groupBy('streams.spotify_track_id', 'tracks.name', 'tracks.artist_name', 'tracks.album_image_url')
+            ->groupBy('streams.spotify_track_id', 'tracks.name', 'tracks.artist_id', 'tracks.artist_name', 'tracks.album_image_url')
             ->orderByDesc('plays')
             ->orderBy('streams.spotify_track_id')
             ->limit(self::LEADERBOARD_LIMIT);
@@ -130,6 +131,7 @@ class ListeningAnalyticsService
             ->map(fn (object $row): array => [
                 'spotify_track_id' => (string) $row->spotify_track_id,
                 'name' => (string) $row->name,
+                'artist_id' => filled($row->artist_id) ? (string) $row->artist_id : null,
                 'artist_name' => filled($row->artist_name) ? (string) $row->artist_name : null,
                 'album_image_url' => filled($row->album_image_url) ? (string) $row->album_image_url : null,
                 'plays' => (int) $row->plays,

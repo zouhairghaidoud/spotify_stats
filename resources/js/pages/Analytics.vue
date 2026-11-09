@@ -10,6 +10,7 @@ import {
     chartTooltip,
 } from '@/chartTheme';
 import { Head, Link, router } from '@inertiajs/vue3';
+import { spotifyArtistUrl, spotifyTrackUrl } from '@/spotifyLinks';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -640,7 +641,18 @@ function cellLabel(dayIndex, hour, count) {
                                         {{ artist.rank }}
                                     </span>
                                     <div class="min-w-0 flex-1">
+                                        <a
+                                            v-if="spotifyArtistUrl(artist.artist_id)"
+                                            :href="spotifyArtistUrl(artist.artist_id)"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            class="block truncate text-sm font-semibold text-white transition hover:text-brand-300 hover:underline"
+                                            :title="`Open ${artist.name} on Spotify`"
+                                        >
+                                            {{ artist.name }}
+                                        </a>
                                         <p
+                                            v-else
                                             class="truncate text-sm font-semibold text-white"
                                         >
                                             {{ artist.name }}
@@ -849,11 +861,36 @@ function cellLabel(dayIndex, hour, count) {
                             </span>
 
                             <div class="min-w-0 flex-1">
-                                <p class="truncate text-sm font-semibold text-white">
+                                <a
+                                    v-if="spotifyTrackUrl(track.spotify_track_id)"
+                                    :href="spotifyTrackUrl(track.spotify_track_id)"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    class="block truncate text-sm font-semibold text-white transition hover:text-brand-300 hover:underline"
+                                    :title="`Open ${track.name} on Spotify`"
+                                >
+                                    {{ track.name }}
+                                </a>
+                                <p
+                                    v-else
+                                    class="truncate text-sm font-semibold text-white"
+                                >
                                     {{ track.name }}
                                 </p>
                                 <p class="truncate text-xs text-ink-400">
-                                    {{ track.artist_name ?? 'Unknown artist' }}
+                                    <a
+                                        v-if="spotifyArtistUrl(track.artist_id)"
+                                        :href="spotifyArtistUrl(track.artist_id)"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        class="transition hover:text-brand-300 hover:underline"
+                                        :title="`Open ${track.artist_name} on Spotify`"
+                                    >
+                                        {{ track.artist_name }}
+                                    </a>
+                                    <span v-else>
+                                        {{ track.artist_name ?? 'Unknown artist' }}
+                                    </span>
                                 </p>
                             </div>
 

@@ -244,6 +244,7 @@ it('reports exact play counts and minutes in the song leaderboard', function () 
     Track::query()->create([
         'spotify_track_id' => 'track-a',
         'name' => 'Big Hit',
+        'artist_id' => 'artist-famous',
         'artist_name' => 'Famous Artist',
         'album_image_url' => 'https://images.example/big-hit.jpg',
         'duration_ms' => 200000,
@@ -264,6 +265,7 @@ it('reports exact play counts and minutes in the song leaderboard', function () 
     expect($leaderboard)->toHaveCount(2)
         ->and($leaderboard[0]['spotify_track_id'])->toBe('track-a')
         ->and($leaderboard[0]['name'])->toBe('Big Hit')
+        ->and($leaderboard[0]['artist_id'])->toBe('artist-famous')
         ->and($leaderboard[0]['plays'])->toBe(2)
         ->and($leaderboard[0]['minutes'])->toBe(7)
         ->and($leaderboard[0]['album_image_url'])->toBe('https://images.example/big-hit.jpg');

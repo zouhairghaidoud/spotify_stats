@@ -1,5 +1,6 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { spotifyTrackUrl } from '@/spotifyLinks';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 
@@ -336,7 +337,20 @@ function formatRelative(value) {
                         </div>
 
                         <div class="min-w-0 flex-1">
-                            <p class="truncate text-sm font-semibold text-white">
+                            <a
+                                v-if="spotifyTrackUrl(track.spotify_track_id)"
+                                :href="spotifyTrackUrl(track.spotify_track_id)"
+                                target="_blank"
+                                rel="noreferrer"
+                                class="block truncate text-sm font-semibold text-white transition hover:text-brand-300 hover:underline"
+                                :title="`Open ${track.name} on Spotify`"
+                            >
+                                {{ track.name }}
+                            </a>
+                            <p
+                                v-else
+                                class="truncate text-sm font-semibold text-white"
+                            >
                                 {{ track.name }}
                             </p>
                             <p class="truncate text-xs text-ink-400">

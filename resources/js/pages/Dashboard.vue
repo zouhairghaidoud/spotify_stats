@@ -1,7 +1,9 @@
 <script setup>
 import HistoryImport from '@/Components/HistoryImport.vue';
 import SpotifyAppForm from '@/Components/SpotifyAppForm.vue';
+import ArtistLinks from '@/Components/ArtistLinks.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { spotifyArtistUrl, spotifyItemUrl, spotifyTrackUrl } from '@/spotifyLinks';
 import { Head, router } from '@inertiajs/vue3';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
@@ -198,8 +200,12 @@ function coverUrl(images) {
     return images?.[0]?.url ?? null;
 }
 
-function artistNames(track) {
-    return (track?.artists ?? []).map((artist) => artist.name).join(', ');
+function trackUrl(track) {
+    return spotifyItemUrl(track) ?? spotifyTrackUrl(track?.id);
+}
+
+function artistUrl(artist) {
+    return spotifyItemUrl(artist) ?? spotifyArtistUrl(artist?.id);
 }
 
 function formatDuration(milliseconds) {
@@ -554,7 +560,18 @@ function formatPlayedAtAbsolute(value) {
                                 </div>
 
                                 <div class="min-w-0 flex-1">
+                                    <a
+                                        v-if="trackUrl(track)"
+                                        :href="trackUrl(track)"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        class="block truncate text-sm font-semibold text-white transition hover:text-brand-300 hover:underline"
+                                        :title="`Open ${track.name} on Spotify`"
+                                    >
+                                        {{ track.name }}
+                                    </a>
                                     <p
+                                        v-else
                                         class="truncate text-sm font-semibold text-white"
                                     >
                                         {{ track.name }}
@@ -562,7 +579,7 @@ function formatPlayedAtAbsolute(value) {
                                     <p
                                         class="truncate text-xs text-ink-400"
                                     >
-                                        {{ artistNames(track) }}
+                                        <ArtistLinks :artists="track.artists" />
                                     </p>
                                 </div>
 
@@ -654,7 +671,18 @@ function formatPlayedAtAbsolute(value) {
                                 </div>
 
                                 <div class="min-w-0 flex-1">
+                                    <a
+                                        v-if="artistUrl(artist)"
+                                        :href="artistUrl(artist)"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        class="block truncate text-sm font-semibold text-white transition hover:text-brand-300 hover:underline"
+                                        :title="`Open ${artist.name} on Spotify`"
+                                    >
+                                        {{ artist.name }}
+                                    </a>
                                     <p
+                                        v-else
                                         class="truncate text-sm font-semibold text-white"
                                     >
                                         {{ artist.name }}
@@ -742,13 +770,24 @@ function formatPlayedAtAbsolute(value) {
                             </div>
 
                             <div class="min-w-0 flex-1">
+                                <a
+                                    v-if="trackUrl(item.track)"
+                                    :href="trackUrl(item.track)"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    class="block truncate text-sm font-semibold text-white transition hover:text-brand-300 hover:underline"
+                                    :title="`Open ${item.track?.name} on Spotify`"
+                                >
+                                    {{ item.track?.name }}
+                                </a>
                                 <p
+                                    v-else
                                     class="truncate text-sm font-semibold text-white"
                                 >
                                     {{ item.track?.name }}
                                 </p>
                                 <p class="truncate text-xs text-ink-400">
-                                    {{ artistNames(item.track) }}
+                                    <ArtistLinks :artists="item.track?.artists" />
                                 </p>
                             </div>
 

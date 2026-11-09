@@ -1,5 +1,6 @@
 <script setup>
 import { Link, router } from '@inertiajs/vue3';
+import { spotifyArtistUrl, spotifyTrackUrl } from '@/spotifyLinks';
 import { toPng } from 'html-to-image';
 import { computed, ref } from 'vue';
 
@@ -224,7 +225,20 @@ function revokeLink() {
                 <p class="text-xs font-semibold uppercase tracking-wide text-ink-400">
                     Your top artist
                 </p>
-                <p class="mt-3 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
+                <a
+                    v-if="topArtist && spotifyArtistUrl(topArtist.artist_id)"
+                    :href="spotifyArtistUrl(topArtist.artist_id)"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="mt-3 block text-4xl font-extrabold tracking-tight text-white transition hover:text-brand-300 hover:underline sm:text-5xl"
+                    :title="`Open ${topArtist.name} on Spotify`"
+                >
+                    {{ topArtist.name }}
+                </a>
+                <p
+                    v-else
+                    class="mt-3 text-4xl font-extrabold tracking-tight text-white sm:text-5xl"
+                >
                     {{ topArtist?.name ?? '—' }}
                 </p>
                 <p v-if="topArtist" class="mt-3 text-sm text-ink-300">
@@ -272,7 +286,20 @@ function revokeLink() {
                         </div>
 
                         <div class="min-w-0 flex-1">
-                            <p class="truncate text-sm font-semibold text-white">
+                            <a
+                                v-if="spotifyTrackUrl(track.spotify_track_id)"
+                                :href="spotifyTrackUrl(track.spotify_track_id)"
+                                target="_blank"
+                                rel="noreferrer"
+                                class="block truncate text-sm font-semibold text-white transition hover:text-brand-300 hover:underline"
+                                :title="`Open ${track.name} on Spotify`"
+                            >
+                                {{ track.name }}
+                            </a>
+                            <p
+                                v-else
+                                class="truncate text-sm font-semibold text-white"
+                            >
                                 {{ track.name }}
                             </p>
                             <p class="truncate text-xs text-ink-400">
