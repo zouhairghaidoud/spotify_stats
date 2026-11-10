@@ -2,6 +2,7 @@
 
 use App\Models\Artist;
 use App\Models\Stream;
+use App\Models\Track;
 use App\Models\User;
 use App\Services\ListeningAnalyticsService;
 use App\Services\StreamSyncService;
@@ -69,6 +70,65 @@ it('weights genres by how often each artist was played', function () {
 
     expect($genres[0])->toBe(['genre' => 'indie pop', 'plays' => 3])
         ->and($genres[1])->toBe(['genre' => 'synthpop', 'plays' => 2]);
+});
+
+it('aggregates the most played albums from stored history', function () {
+    $user = User::factory()->create();
+
+    $makeTrack = function (string $id, string $name, string $album, string $artist, int $duration): Track {
+        return Track::query()->create([
+            'spotify_track_id' => $id,
+            'name' => $name,
+            'artist_id' => 'artist-'.$artist,
+            'artist_name' => $artist,
+            'album_name' => $album,
+            'album_image_url' => "https://images.example/{$album}.jpg",
+            'duration_ms' => $duration,
+        ]);
+    };
+
+    $makeTrack('track-a1', 'A One', 'Album A', 'Artist X', 200000);
+    $makeTrack('track-a2', 'A Two', 'Album A', 'Artist X', 100000);
+    $makeTrack('track-b1', 'B One', 'Album B', 'Artist Y', 300000);
+    $makeTrack('track-c1', 'C One', 'Album C', 'Artist Z', 60000);
+    $makeTrack('track-null', 'No Album', '', 'Artist Z', 120000);
+
+    // Album A: 3 plays, 7.5 minutes, 2 unique tracks.
+    storePlay($user, 'track-a1', '2026-11-01 10:00:00', null, 'artist-X');
+    storePlay($user, 'track-a1', '2026-11-01 10:05:00', 150000, 'artist-X');
+    storePlay($user, 'track-a2', '2026-11-01 10:10:00', null, 'artist-X');
+
+    // Albums B and C both have 2 plays; B wins the minutes tie-break.
+    storePlay($user, 'track-b1', '2026-11-02 10:00:00', null, 'artist-Y');
+    storePlay($user, 'track-b1', '2026-11-02 10:05:00', null, 'artist-Y');
+    storePlay($user, 'track-c1', '2026-11-03 10:00:00', null, 'artist-Z');
+    storePlay($user, 'track-c1', '2026-11-03 10:05:00', null, 'artist-Z');
+
+    storePlay($user, 'track-null', '2026-11-04 10:00:00', null, 'artist-Z');
+
+    $albums = app(ListeningAnalyticsService::class)->forUser($user, 'UTC')['top_albums'];
+
+    expect($albums)->toHaveCount(3)
+        ->and($albums[0])->toBe([
+            'album_name' => 'Album A',
+            'artist_name' => 'Artist X',
+            'cover_url' => 'https://images.example/Album A.jpg',
+            'plays' => 3,
+            'minutes' => 8,
+            'unique_tracks_played' => 2,
+        ])
+        ->and($albums[1]['album_name'])->toBe('Album B')
+        ->and($albums[1]['minutes'])->toBe(10)
+        ->and($albums[2]['album_name'])->toBe('Album C')
+        ->and($albums[2]['minutes'])->toBe(2);
+});
+
+it('returns no top albums when the user has no plays', function () {
+    $user = User::factory()->create();
+
+    $analytics = app(ListeningAnalyticsService::class)->forUser($user, 'UTC');
+
+    expect($analytics['top_albums'])->toBe([]);
 });
 
 it('buckets the heatmap into the requested local timezone', function () {

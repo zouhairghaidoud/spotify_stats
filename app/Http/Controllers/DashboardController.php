@@ -59,6 +59,7 @@ class DashboardController extends Controller
             'currentlyPlaying' => null,
             'topTracks' => [],
             'topArtists' => [],
+            'topAlbums' => [],
             'recentlyPlayed' => [],
             ...$shared,
         ];
@@ -88,7 +89,75 @@ class DashboardController extends Controller
             report($exception);
         }
 
+        $data['topAlbums'] = $this->topAlbums($data['topTracks']);
+
         return Inertia::render('Dashboard', $data);
+    }
+
+    /**
+     * Derive albums from the cached top tracks.
+     *
+     * Spotify has no top-albums endpoint, so albums are ranked by the inverse
+     * rank of every top track that belongs to them. A track at position #1 is
+     * worth more than the same track at position #50.
+     *
+     * @param  array<int, array<string, mixed>>  $tracks
+     * @return array<int, array{id: string|null, name: string, artist_name: string|null, cover_url: string|null, url: string|null, track_count: int, score: int, top_tracks: array<int, array{id: string|null, name: string}>}>
+     */
+    private function topAlbums(array $tracks): array
+    {
+        $albums = [];
+
+        foreach (array_values($tracks) as $index => $track) {
+            $album = $track['album'] ?? null;
+
+            if (! is_array($album)) {
+                continue;
+            }
+
+            $name = trim((string) ($album['name'] ?? ''));
+
+            if ($name === '') {
+                continue;
+            }
+
+            $key = (string) ($album['id'] ?? mb_strtolower($name));
+
+            $albums[$key] ??= [
+                'id' => filled($album['id'] ?? null) ? (string) $album['id'] : null,
+                'name' => $name,
+                'artist_name' => filled(data_get($album, 'artists.0.name'))
+                    ? (string) data_get($album, 'artists.0.name')
+                    : null,
+                'cover_url' => filled(data_get($album, 'images.0.url'))
+                    ? (string) data_get($album, 'images.0.url')
+                    : null,
+                'url' => filled(data_get($album, 'external_urls.spotify'))
+                    ? (string) data_get($album, 'external_urls.spotify')
+                    : null,
+                'track_count' => 0,
+                'score' => 0,
+                'top_tracks' => [],
+            ];
+
+            $albums[$key]['track_count']++;
+            $albums[$key]['score'] += max(1, 51 - $index);
+
+            if (filled($track['name'] ?? null)) {
+                $albums[$key]['top_tracks'][] = [
+                    'id' => filled($track['id'] ?? null) ? (string) $track['id'] : null,
+                    'name' => (string) $track['name'],
+                ];
+            }
+        }
+
+        usort($albums, function (array $left, array $right): int {
+            return $right['score'] <=> $left['score']
+                ?: $right['track_count'] <=> $left['track_count']
+                ?: strcasecmp($left['name'], $right['name']);
+        });
+
+        return array_slice($albums, 0, 12);
     }
 
     /**

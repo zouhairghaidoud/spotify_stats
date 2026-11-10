@@ -36,6 +36,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    topAlbums: {
+        type: Array,
+        default: () => [],
+    },
     recentlyPlayed: {
         type: Array,
         default: () => [],
@@ -821,6 +825,115 @@ function formatPlayedAtAbsolute(value) {
                     </button>
                 </section>
                 </div>
+
+                <!-- Top albums -->
+                <section class="surface-card overflow-hidden">
+                    <header
+                        class="flex items-center justify-between border-b border-white/[0.06] px-4 py-3"
+                    >
+                        <div>
+                            <h2 class="text-base font-bold text-white">
+                                Top Albums
+                            </h2>
+                            <p class="mt-0.5 text-xs text-ink-400">
+                                Albums with the most tracks in your current top
+                                50
+                            </p>
+                        </div>
+                        <span
+                            v-if="topAlbums.length"
+                            class="rounded-full bg-white/5 px-2.5 py-1 text-xs font-semibold text-ink-300"
+                        >
+                            Top {{ topAlbums.length }}
+                        </span>
+                    </header>
+
+                    <ol
+                        v-if="topAlbums.length"
+                        class="grid grid-cols-2 gap-4 px-4 py-4 sm:grid-cols-3 lg:grid-cols-6"
+                    >
+                        <li
+                            v-for="album in topAlbums"
+                            :key="album.id ?? album.name"
+                            class="group min-w-0"
+                        >
+                            <a
+                                v-if="album.url"
+                                :href="album.url"
+                                target="_blank"
+                                rel="noreferrer"
+                                class="block"
+                                :title="`Open ${album.name} on Spotify`"
+                            >
+                                <img
+                                    v-if="album.cover_url"
+                                    :src="album.cover_url"
+                                    :alt="album.name"
+                                    class="aspect-square w-full rounded-xl object-cover ring-1 ring-white/5 transition group-hover:ring-brand-500/40"
+                                    loading="lazy"
+                                />
+                                <div
+                                    v-else
+                                    class="flex aspect-square w-full items-center justify-center rounded-xl bg-ink-800 text-ink-500"
+                                >
+                                    <svg
+                                        class="h-7 w-7"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                        aria-hidden="true"
+                                    >
+                                        <path
+                                            d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6Z"
+                                        />
+                                    </svg>
+                                </div>
+                            </a>
+                            <template v-else>
+                                <img
+                                    v-if="album.cover_url"
+                                    :src="album.cover_url"
+                                    :alt="album.name"
+                                    class="aspect-square w-full rounded-xl object-cover ring-1 ring-white/5"
+                                    loading="lazy"
+                                />
+                                <div
+                                    v-else
+                                    class="flex aspect-square w-full items-center justify-center rounded-xl bg-ink-800 text-ink-500"
+                                >
+                                    <svg
+                                        class="h-7 w-7"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                        aria-hidden="true"
+                                    >
+                                        <path
+                                            d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6Z"
+                                        />
+                                    </svg>
+                                </div>
+                            </template>
+
+                            <p class="mt-2 truncate text-sm font-semibold text-white">
+                                {{ album.name }}
+                            </p>
+                            <p class="truncate text-xs text-ink-400">
+                                {{ album.artist_name ?? 'Unknown artist' }}
+                            </p>
+                            <p class="mt-1 text-[11px] text-ink-500">
+                                {{ album.track_count }}
+                                {{ album.track_count === 1 ? 'track' : 'tracks' }}
+                                in your top 50
+                            </p>
+                        </li>
+                    </ol>
+
+                    <p
+                        v-else
+                        class="px-4 py-8 text-center text-sm text-ink-400"
+                    >
+                        No albums found in your current top tracks yet.
+                    </p>
+                </section>
             </template>
 
             <!-- BYOK when Spotify is not connected or the default app failed -->

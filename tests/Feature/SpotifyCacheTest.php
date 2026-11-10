@@ -67,6 +67,61 @@ it('throws when Spotify fails and nothing is cached', function () {
         ->toThrow(RequestException::class);
 });
 
+it('derives ranked top albums from the cached top tracks', function () {
+    Http::fake([
+        'api.spotify.com/v1/me/top/tracks*' => Http::response(['items' => [
+            [
+                'id' => 'track-a',
+                'name' => 'Track A',
+                'album' => [
+                    'id' => 'album-a',
+                    'name' => 'Album A',
+                    'artists' => [['name' => 'Artist A']],
+                    'images' => [['url' => 'https://images.example/album-a.jpg']],
+                    'external_urls' => ['spotify' => 'https://open.spotify.com/album/album-a'],
+                ],
+            ],
+            [
+                'id' => 'track-b',
+                'name' => 'Track B',
+                'album' => [
+                    'id' => 'album-a',
+                    'name' => 'Album A',
+                    'artists' => [['name' => 'Artist A']],
+                    'images' => [['url' => 'https://images.example/album-a.jpg']],
+                    'external_urls' => ['spotify' => 'https://open.spotify.com/album/album-a'],
+                ],
+            ],
+            [
+                'id' => 'track-c',
+                'name' => 'Track C',
+                'album' => [
+                    'id' => 'album-b',
+                    'name' => 'Album B',
+                    'artists' => [['name' => 'Artist B']],
+                    'images' => [['url' => 'https://images.example/album-b.jpg']],
+                    'external_urls' => ['spotify' => 'https://open.spotify.com/album/album-b'],
+                ],
+            ],
+        ]]),
+        'api.spotify.com/v1/me/top/artists*' => Http::response(['items' => []]),
+        'api.spotify.com/v1/me/player/recently-played*' => Http::response(['items' => []]),
+        'api.spotify.com/v1/me/player/currently-playing*' => Http::response([], 204),
+    ]);
+
+    $this->actingAs($this->user)
+        ->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Dashboard')
+            ->has('topAlbums', 2)
+            ->where('topAlbums.0.id', 'album-a')
+            ->where('topAlbums.0.name', 'Album A')
+            ->where('topAlbums.0.track_count', 2)
+            ->where('topAlbums.0.url', 'https://open.spotify.com/album/album-a')
+            ->where('topAlbums.1.id', 'album-b'));
+});
+
 it('serves the dashboard with stale data when Spotify is unavailable', function () {
     $fail = false;
 

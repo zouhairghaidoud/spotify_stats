@@ -82,12 +82,34 @@ it('builds the recap from stored plays', function () {
         ->and($recap['peak_hour'])->toBe(['hour' => 14, 'plays' => 2]);
 });
 
+it('includes the most played album in the recap', function () {
+    $user = User::factory()->create();
+
+    recapTrack('track-a', 'Track A', 'artist-1', 'Artist One');
+    recapTrack('track-b', 'Track B', 'artist-1', 'Artist One');
+
+    recapPlay($user, 'track-a', '2026-11-07 14:00:00', 210000, 'artist-1');
+    recapPlay($user, 'track-a', '2026-11-07 14:10:00', 210000, 'artist-1');
+    recapPlay($user, 'track-b', '2026-11-07 15:00:00', 210000, 'artist-1');
+
+    $album = app(RecapService::class)->forUser($user, 'UTC')['top_album'];
+
+    expect($album)->not->toBeNull()
+        ->and($album['album_name'])->toBe('Album')
+        ->and($album['artist_name'])->toBe('Artist One')
+        ->and($album['plays'])->toBe(3)
+        ->and($album['minutes'])->toBe(11)
+        ->and($album['unique_tracks_played'])->toBe(2)
+        ->and($album['cover_url'])->not->toBeNull();
+});
+
 it('returns an empty recap for a user without plays', function () {
     $recap = app(RecapService::class)->forUser(User::factory()->create(), 'UTC');
 
     expect($recap['overview']['plays'])->toBe(0)
         ->and($recap['top_tracks'])->toBe([])
         ->and($recap['top_artist'])->toBeNull()
+        ->and($recap['top_album'])->toBeNull()
         ->and($recap['top_genres'])->toBe([])
         ->and($recap['peak_hour'])->toBeNull()
         ->and($recap['period']['from'])->toBeNull();

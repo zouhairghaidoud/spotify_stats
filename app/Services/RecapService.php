@@ -25,6 +25,7 @@ class RecapService
      *     overview: array{plays: int, minutes: int, unique_artists: int, unique_tracks: int},
      *     top_tracks: array<int, array{spotify_track_id: string, name: string, artist_name: string|null, album_name: string|null, cover_url: string|null, duration_ms: int|null, plays: int}>,
      *     top_artist: array{artist_id: string, name: string, plays: int, share: float}|null,
+     *     top_album: array{album_name: string, artist_name: string|null, cover_url: string|null, plays: int, minutes: int, unique_tracks_played: int}|null,
      *     top_genres: array<int, array{genre: string, plays: int}>,
      *     peak_hour: array{hour: int, plays: int}|null
      * }
@@ -47,6 +48,7 @@ class RecapService
             ],
             'top_tracks' => $this->topTracks($user),
             'top_artist' => $this->topArtist($user),
+            'top_album' => $analytics['top_albums'][0] ?? null,
             'top_genres' => array_slice($analytics['top_genres'], 0, self::TOP_GENRES),
             'peak_hour' => $this->peakHour($analytics['heatmap']['counts']),
         ];

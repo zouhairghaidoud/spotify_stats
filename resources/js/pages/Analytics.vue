@@ -30,6 +30,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    top_albums: {
+        type: Array,
+        default: () => [],
+    },
     tracks_leaderboard: {
         type: Array,
         default: () => [],
@@ -793,6 +797,97 @@ function cellLabel(dayIndex, hour, count) {
                         Spotify no longer exposes artist genres to new apps, so
                         genre totals are unavailable. Every other number on this
                         page is unaffected.
+                    </p>
+                </section>
+
+                <!-- Top albums -->
+                <section class="surface-card overflow-hidden">
+                    <header
+                        class="flex items-center justify-between border-b border-white/[0.06] px-5 py-4"
+                    >
+                        <div>
+                            <h2 class="text-base font-bold text-white">
+                                Top albums
+                            </h2>
+                            <p class="mt-0.5 text-xs text-ink-400">
+                                Your most played albums from stored history
+                            </p>
+                        </div>
+                        <span
+                            v-if="top_albums.length"
+                            class="rounded-full bg-white/5 px-2.5 py-1 text-xs font-semibold text-ink-300"
+                        >
+                            Top {{ top_albums.length }}
+                        </span>
+                    </header>
+
+                    <ol
+                        v-if="top_albums.length"
+                        class="grid grid-cols-2 gap-4 px-5 py-5 sm:grid-cols-3 lg:grid-cols-4"
+                    >
+                        <li
+                            v-for="(album, index) in top_albums"
+                            :key="`${album.album_name}-${album.artist_name}`"
+                            class="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
+                        >
+                            <div class="relative">
+                                <img
+                                    v-if="album.cover_url"
+                                    :src="album.cover_url"
+                                    :alt="album.album_name"
+                                    class="aspect-square w-full rounded-lg object-cover ring-1 ring-white/5"
+                                    loading="lazy"
+                                />
+                                <div
+                                    v-else
+                                    class="flex aspect-square w-full items-center justify-center rounded-lg bg-ink-800 text-ink-500"
+                                >
+                                    <svg
+                                        class="h-8 w-8"
+                                        viewBox="0 0 24 24"
+                                        fill="currentColor"
+                                        aria-hidden="true"
+                                    >
+                                        <path
+                                            d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6Z"
+                                        />
+                                    </svg>
+                                </div>
+                                <span
+                                    class="absolute left-2 top-2 rounded-full bg-ink-950/80 px-2 py-0.5 text-[11px] font-bold text-white backdrop-blur"
+                                >
+                                    #{{ index + 1 }}
+                                </span>
+                            </div>
+
+                            <p class="mt-3 truncate text-sm font-semibold text-white">
+                                {{ album.album_name }}
+                            </p>
+                            <p class="truncate text-xs text-ink-400">
+                                {{ album.artist_name ?? 'Unknown artist' }}
+                            </p>
+
+                            <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-400">
+                                <span class="tabular-nums">
+                                    {{ formatNumber(album.plays) }} plays
+                                </span>
+                                <span class="tabular-nums">
+                                    {{ formatNumber(album.minutes) }} min
+                                </span>
+                                <span class="tabular-nums">
+                                    {{ album.unique_tracks_played }}
+                                    {{ album.unique_tracks_played === 1 ? 'track' : 'tracks' }}
+                                </span>
+                            </div>
+                        </li>
+                    </ol>
+
+                    <p
+                        v-else
+                        class="px-5 py-10 text-center text-sm text-ink-400"
+                    >
+                        No album metadata stored yet. Import your Spotify history
+                        or listen to a few tracks to see your top albums.
                     </p>
                 </section>
 

@@ -248,6 +248,50 @@ function revokeLink() {
                 </p>
             </section>
 
+            <!-- Top album -->
+            <section v-if="recap.top_album" class="surface-card p-6 sm:p-8">
+                <p class="text-xs font-semibold uppercase tracking-wide text-ink-400">
+                    Your top album
+                </p>
+
+                <div class="mt-4 flex flex-col gap-5 sm:flex-row sm:items-center">
+                    <img
+                        v-if="recap.top_album.cover_url"
+                        :src="recap.top_album.cover_url"
+                        :alt="recap.top_album.album_name"
+                        class="h-28 w-28 shrink-0 rounded-2xl object-cover ring-1 ring-white/10"
+                        loading="lazy"
+                    />
+                    <div
+                        v-else
+                        class="flex h-28 w-28 shrink-0 items-center justify-center rounded-2xl bg-ink-800 text-ink-500"
+                    >
+                        <svg
+                            class="h-9 w-9"
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            aria-hidden="true"
+                        >
+                            <path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6Z" />
+                        </svg>
+                    </div>
+
+                    <div class="min-w-0">
+                        <p class="truncate text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                            {{ recap.top_album.album_name }}
+                        </p>
+                        <p class="mt-1 truncate text-sm text-ink-300">
+                            {{ recap.top_album.artist_name ?? 'Unknown artist' }}
+                        </p>
+                        <p class="mt-3 text-sm text-ink-300">
+                            {{ formatNumber(recap.top_album.plays) }} plays
+                            <span class="text-ink-500">&middot;</span>
+                            {{ formatNumber(recap.top_album.minutes) }} minutes
+                        </p>
+                    </div>
+                </div>
+            </section>
+
             <!-- Top tracks -->
             <section class="surface-card overflow-hidden">
                 <header class="border-b border-white/[0.06] px-5 py-4">

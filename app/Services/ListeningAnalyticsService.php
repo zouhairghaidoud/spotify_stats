@@ -32,6 +32,8 @@ class ListeningAnalyticsService
 
     private const LEADERBOARD_LIMIT = 50;
 
+    private const TOP_ALBUM_LIMIT = 12;
+
     /**
      * @return array{
      *     timezone: string,
@@ -45,6 +47,7 @@ class ListeningAnalyticsService
      *         last_played_at: string|null
      *     },
      *     top_genres: array<int, array{genre: string, plays: int}>,
+     *     top_albums: array<int, array{album_name: string, artist_name: string|null, cover_url: string|null, plays: int, minutes: int, unique_tracks_played: int}>,
      *     heatmap: array{counts: array<int, array<int, int>>, max: int},
      *     discovery: array{new_artists: int, plays: int, rate: float},
      *     streaks: array{current: int, longest: int},
@@ -85,6 +88,7 @@ class ListeningAnalyticsService
                 'last_played_at' => $this->timestamp($user->streams()->max('played_at')),
             ],
             'top_genres' => $this->topGenres($user),
+            'top_albums' => $this->topAlbums($user),
             'heatmap' => [
                 'counts' => $heatmap,
                 'max' => $this->heatmapMax($heatmap),
@@ -136,6 +140,41 @@ class ListeningAnalyticsService
                 'album_image_url' => filled($row->album_image_url) ? (string) $row->album_image_url : null,
                 'plays' => (int) $row->plays,
                 'minutes' => (int) $row->minutes,
+            ])
+            ->all();
+    }
+
+    /**
+     * Most played albums from stored history.
+     *
+     * @return array<int, array{album_name: string, artist_name: string|null, cover_url: string|null, plays: int, minutes: int, unique_tracks_played: int}>
+     */
+    private function topAlbums(User $user): array
+    {
+        return $user->streams()
+            ->join('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
+            ->whereNotNull('tracks.album_name')
+            ->where('tracks.album_name', '!=', '')
+            ->selectRaw('tracks.album_name as album_name')
+            ->selectRaw('tracks.artist_name as artist_name')
+            ->selectRaw('MAX(tracks.album_image_url) as cover_url')
+            ->selectRaw('COUNT(streams.id) as plays')
+            ->selectRaw('COALESCE(SUM(COALESCE(streams.duration_ms, tracks.duration_ms, 0)), 0) as duration_ms')
+            ->selectRaw('COUNT(DISTINCT streams.spotify_track_id) as unique_tracks_played')
+            ->groupBy('tracks.album_name', 'tracks.artist_name')
+            ->orderByDesc('plays')
+            ->orderByDesc('duration_ms')
+            ->orderBy('tracks.album_name')
+            ->limit(self::TOP_ALBUM_LIMIT)
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => [
+                'album_name' => (string) $row->album_name,
+                'artist_name' => filled($row->artist_name) ? (string) $row->artist_name : null,
+                'cover_url' => filled($row->cover_url) ? (string) $row->cover_url : null,
+                'plays' => (int) $row->plays,
+                'minutes' => (int) round((int) $row->duration_ms / 60000),
+                'unique_tracks_played' => (int) $row->unique_tracks_played,
             ])
             ->all();
     }
