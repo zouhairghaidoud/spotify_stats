@@ -34,6 +34,16 @@ return [
         'redirect' => env('SPOTIFY_REDIRECT_URI'),
     ],
 
+    'musicbrainz' => [
+        'base_url' => env('MUSICBRAINZ_BASE_URL', 'https://musicbrainz.org/ws/2'),
+        'user_agent' => env(
+            'MUSICBRAINZ_USER_AGENT',
+            'SpotifyStats/1.0 ('.env('APP_URL', 'http://localhost').')',
+        ),
+        'delay_ms' => (int) env('MUSICBRAINZ_DELAY_MS', 1500),
+        'retry_sleep_seconds' => (int) env('MUSICBRAINZ_RETRY_SLEEP_SECONDS', 2),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

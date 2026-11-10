@@ -128,14 +128,15 @@ class ListeningAnalyticsService
     {
         $query = $this->windowed($user->streams(), $from, $to)
             ->leftJoin('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
+            ->leftJoin('artists', 'artists.spotify_artist_id', '=', 'streams.artist_id')
             ->selectRaw('streams.spotify_track_id as spotify_track_id')
             ->selectRaw("COALESCE(tracks.name, 'Unknown track') as name")
-            ->selectRaw('tracks.artist_id as artist_id')
-            ->selectRaw('tracks.artist_name as artist_name')
+            ->selectRaw('COALESCE(tracks.artist_id, streams.artist_id) as artist_id')
+            ->selectRaw('COALESCE(tracks.artist_name, artists.name) as artist_name')
             ->selectRaw('tracks.album_image_url as album_image_url')
             ->selectRaw('COUNT(*) as plays')
             ->selectRaw('ROUND(COALESCE(SUM(streams.duration_ms), 0) / 60000.0) as minutes')
-            ->groupBy('streams.spotify_track_id', 'tracks.name', 'tracks.artist_id', 'tracks.artist_name', 'tracks.album_image_url')
+            ->groupBy('streams.spotify_track_id', 'tracks.name', 'tracks.artist_id', 'streams.artist_id', 'tracks.artist_name', 'artists.name', 'tracks.album_image_url')
             ->orderByDesc('plays')
             ->orderBy('streams.spotify_track_id')
             ->limit(self::LEADERBOARD_LIMIT);
@@ -145,7 +146,8 @@ class ListeningAnalyticsService
 
             $query->where(function ($query) use ($term): void {
                 $query->where('tracks.name', 'like', $term)
-                    ->orWhere('tracks.artist_name', 'like', $term);
+                    ->orWhere('tracks.artist_name', 'like', $term)
+                    ->orWhere('artists.name', 'like', $term);
             });
         }
 
@@ -173,15 +175,16 @@ class ListeningAnalyticsService
     {
         return $this->windowed($user->streams(), $from, $to)
             ->join('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
+            ->leftJoin('artists', 'artists.spotify_artist_id', '=', 'tracks.artist_id')
             ->whereNotNull('tracks.album_name')
             ->where('tracks.album_name', '!=', '')
             ->selectRaw('tracks.album_name as album_name')
-            ->selectRaw('tracks.artist_name as artist_name')
+            ->selectRaw('COALESCE(tracks.artist_name, artists.name) as artist_name')
             ->selectRaw('MAX(tracks.album_image_url) as cover_url')
             ->selectRaw('COUNT(streams.id) as plays')
             ->selectRaw('COALESCE(SUM(COALESCE(streams.duration_ms, tracks.duration_ms, 0)), 0) as duration_ms')
             ->selectRaw('COUNT(DISTINCT streams.spotify_track_id) as unique_tracks_played')
-            ->groupBy('tracks.album_name', 'tracks.artist_name')
+            ->groupBy('tracks.album_name', 'tracks.artist_name', 'artists.name')
             ->orderByDesc('plays')
             ->orderByDesc('duration_ms')
             ->orderBy('tracks.album_name')

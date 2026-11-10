@@ -79,6 +79,29 @@ it('filters stored-history analytics to a time range', function () {
     Carbon::setTestNow();
 });
 
+it('fills a missing track artist name from the stream artist', function () {
+    $user = User::factory()->create();
+
+    Artist::query()->create([
+        'spotify_artist_id' => 'artist-known',
+        'name' => 'Known Artist',
+    ]);
+
+    Track::query()->create([
+        'spotify_track_id' => 'track-sparse',
+        'name' => 'Sparse Song',
+        'artist_name' => null,
+        'artist_id' => null,
+    ]);
+
+    storePlay($user, 'track-sparse', '2026-11-01 10:00:00', 180000, 'artist-known');
+
+    $row = app(ListeningAnalyticsService::class)->forUser($user, 'UTC')['tracks_leaderboard'][0];
+
+    expect($row['artist_name'])->toBe('Known Artist')
+        ->and($row['artist_id'])->toBe('artist-known');
+});
+
 it('weights genres by how often each artist was played', function () {
     $user = User::factory()->create();
 

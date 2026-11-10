@@ -388,12 +388,23 @@ class SpotifyService
     }
 
     /**
-     * Fetch public track metadata from Spotify's oEmbed endpoint.
+     * Fetch public track metadata from Spotify's embed page.
+     *
+     * The Web API `/v1/tracks` endpoint returns nothing for apps created after
+     * November 2024, and the oEmbed response omits the artist name. The public
+     * embed page embeds a JSON payload that includes the track title, artists,
+     * cover art, and duration, so we read that first and fall back to oEmbed.
      *
      * @return array<string, mixed>|null
      */
     public function lookupTrackViaOembed(string $trackId): ?array
     {
+        $embed = $this->lookupTrackEmbed($trackId);
+
+        if ($embed !== null) {
+            return $embed;
+        }
+
         try {
             $response = Http::acceptJson()->get('https://open.spotify.com/oembed', [
                 'url' => 'spotify:track:'.$trackId,
@@ -405,6 +416,58 @@ class SpotifyService
 
             return null;
         }
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function lookupTrackEmbed(string $trackId): ?array
+    {
+        try {
+            $response = Http::withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (compatible; SpotifyStats/1.0)',
+            ])->get('https://open.spotify.com/embed/track/'.$trackId);
+
+            if (! $response->successful()) {
+                return null;
+            }
+
+            if (preg_match('/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/s', $response->body(), $matches) !== 1) {
+                return null;
+            }
+
+            $entity = data_get(json_decode($matches[1], true), 'props.pageProps.state.data.entity');
+
+            if (! is_array($entity)) {
+                return null;
+            }
+
+            $firstArtist = data_get($entity, 'artists.0');
+            $firstArtist = is_array($firstArtist) ? $firstArtist : [];
+
+            return [
+                'title' => $entity['name'] ?? null,
+                'author_name' => $firstArtist['name'] ?? null,
+                'artist_id' => $this->artistIdFromUri($firstArtist['uri'] ?? null),
+                'thumbnail_url' => data_get($entity, 'visualIdentity.image.0.url'),
+                'duration_ms' => is_numeric($entity['duration'] ?? null) ? (int) $entity['duration'] : null,
+            ];
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return null;
+        }
+    }
+
+    private function artistIdFromUri(mixed $uri): ?string
+    {
+        if (! is_string($uri) || ! str_starts_with($uri, 'spotify:artist:')) {
+            return null;
+        }
+
+        $id = trim(substr($uri, strlen('spotify:artist:')));
+
+        return $id !== '' ? $id : null;
     }
 
     private function clientId(?User $user = null): string

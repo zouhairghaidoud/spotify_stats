@@ -131,6 +131,24 @@ const maxGenrePlays = computed(() =>
 
 const searchTerm = ref(props.search ?? '');
 let searchTimer = null;
+const genreFetching = ref(false);
+
+function fetchGenres() {
+    router.post(
+        route('genres.backfill'),
+        {},
+        {
+            preserveScroll: true,
+            preserveState: true,
+            onStart: () => {
+                genreFetching.value = true;
+            },
+            onFinish: () => {
+                genreFetching.value = false;
+            },
+        },
+    );
+}
 
 watch(
     () => props.search,
@@ -847,6 +865,15 @@ function cellLabel(dayIndex, hour, count) {
                         >
                             Top {{ top_genres.length }}
                         </span>
+                        <button
+                            v-else
+                            type="button"
+                            class="rounded-full border border-brand-500/30 bg-brand-500/10 px-3 py-1.5 text-xs font-semibold text-brand-300 transition hover:bg-brand-500/20 disabled:cursor-wait disabled:opacity-60"
+                            :disabled="genreFetching"
+                            @click="fetchGenres"
+                        >
+                            {{ genreFetching ? 'Queuing…' : 'Fetch genres' }}
+                        </button>
                     </header>
 
                     <ol v-if="top_genres.length" class="space-y-3 px-5 py-5">
@@ -879,9 +906,9 @@ function cellLabel(dayIndex, hour, count) {
                     </ol>
 
                     <p v-else class="px-5 py-10 text-center text-sm text-ink-400">
-                        Spotify no longer exposes artist genres to new apps, so
-                        genre totals are unavailable. Every other number on this
-                        page is unaffected.
+                        Spotify no longer exposes artist genres to new apps.
+                        Use “Fetch genres” to backfill them from MusicBrainz.
+                        Every other number on this page is unaffected.
                     </p>
                 </section>
 

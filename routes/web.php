@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\GenreController;
 use App\Http\Controllers\HistoryDataController;
 use App\Http\Controllers\ImportController;
 use App\Http\Controllers\ListeningDetailController;
@@ -57,6 +58,10 @@ Route::get('/history/export', [HistoryDataController::class, 'export'])
 Route::delete('/history/imported', [HistoryDataController::class, 'destroyImported'])
     ->middleware(['auth', 'verified'])
     ->name('history.destroy-imported');
+
+Route::post('/genres/backfill', [GenreController::class, 'store'])
+    ->middleware(['auth', 'verified'])
+    ->name('genres.backfill');
 
 Route::get('/now-playing', NowPlayingController::class)
     ->middleware(['auth', 'verified'])

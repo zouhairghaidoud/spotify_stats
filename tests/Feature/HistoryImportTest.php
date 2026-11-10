@@ -226,6 +226,73 @@ it('falls back to oembed when the tracks endpoint returns nothing', function () 
         ->and(Stream::query()->whereBelongsTo($user)->value('artist_id'))->toBe($artistId);
 });
 
+it('keeps artist metadata when a track first appears without it', function () {
+    $user = User::factory()->create();
+    $trackId = str_repeat('m', 22);
+
+    $result = app(HistoryImportService::class)->import($user, extendedHistoryFile([
+        [
+            'ts' => '2024-03-01T12:00:00Z',
+            'ms_played' => 200000,
+            'master_metadata_track_name' => 'Sparse Song',
+            'master_metadata_album_artist_name' => null,
+            'master_metadata_album_album_name' => null,
+            'spotify_track_uri' => 'spotify:track:'.$trackId,
+        ],
+        [
+            'ts' => '2024-03-01T12:05:00Z',
+            'ms_played' => 200000,
+            'master_metadata_track_name' => 'Sparse Song',
+            'master_metadata_album_artist_name' => 'Recovered Artist',
+            'master_metadata_album_album_name' => 'Recovered Album',
+            'spotify_track_uri' => 'spotify:track:'.$trackId,
+        ],
+    ]));
+
+    $track = Track::query()->where('spotify_track_id', $trackId)->sole();
+
+    expect($result['imported'])->toBe(2)
+        ->and($track->artist_name)->toBe('Recovered Artist')
+        ->and($track->album_name)->toBe('Recovered Album');
+});
+
+it('recovers artist metadata from the spotify embed page', function () {
+    $user = User::factory()->create();
+    $trackId = str_repeat('n', 22);
+
+    $entity = [
+        'type' => 'track',
+        'name' => 'Embed Song',
+        'artists' => [
+            ['name' => 'Embed Artist', 'uri' => 'spotify:artist:embed-artist-id'],
+        ],
+        'duration' => 195000,
+        'visualIdentity' => ['image' => [['url' => 'https://images.example/embed.jpg']]],
+    ];
+
+    $html = '<script id="__NEXT_DATA__" type="application/json">'
+        .json_encode(['props' => ['pageProps' => ['state' => ['data' => ['entity' => $entity]]]]])
+        .'</script>';
+
+    Http::fake([
+        'accounts.spotify.com/api/token' => Http::response(['access_token' => 'app-token']),
+        'api.spotify.com/v1/tracks*' => Http::response(['tracks' => []]),
+        'open.spotify.com/embed/track/*' => Http::response($html),
+    ]);
+
+    $this->actingAs($user)
+        ->post('/import', ['file' => extendedHistoryFile([extendedPlay($trackId)])])
+        ->assertSessionHasNoErrors();
+
+    $track = Track::query()->where('spotify_track_id', $trackId)->sole();
+
+    expect($track->name)->toBe('Embed Song')
+        ->and($track->artist_name)->toBe('Embed Artist')
+        ->and($track->artist_id)->toBe('embed-artist-id')
+        ->and($track->album_image_url)->toBe('https://images.example/embed.jpg')
+        ->and(Stream::query()->whereBelongsTo($user)->value('artist_id'))->toBe('embed-artist-id');
+});
+
 it('queues an import instead of blocking the request', function () {
     Queue::fake();
     Storage::fake('local');

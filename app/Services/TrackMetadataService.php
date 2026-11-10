@@ -174,7 +174,9 @@ class TrackMetadataService
             $artistName = filled($metadata['author_name'] ?? null)
                 ? (string) $metadata['author_name']
                 : null;
-            $artistId = $this->localArtistId($artistName);
+            $artistId = filled($metadata['artist_id'] ?? null)
+                ? (string) $metadata['artist_id']
+                : $this->localArtistId($artistName);
 
             $trackRows[] = [
                 'spotify_track_id' => $trackId,
@@ -185,7 +187,9 @@ class TrackMetadataService
                 'album_image_url' => filled($metadata['thumbnail_url'] ?? null)
                     ? (string) $metadata['thumbnail_url']
                     : null,
-                'duration_ms' => null,
+                'duration_ms' => is_numeric($metadata['duration_ms'] ?? null)
+                    ? (int) $metadata['duration_ms']
+                    : null,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];

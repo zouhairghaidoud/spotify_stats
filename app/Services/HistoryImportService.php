@@ -69,15 +69,18 @@ class HistoryImportService
                 $trackId = $row['spotify_track_id'];
                 $pendingRows[$trackId.'|'.$row['played_at']] = $row;
 
-                $trackMeta[$trackId] ??= [
-                    'spotify_track_id' => $trackId,
-                    'name' => $row['track_name'],
-                    'artist_name' => $row['artist_name'],
-                    'album_name' => $row['album_name'],
-                    'duration_ms' => $row['duration_ms'],
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
+                $trackMeta[$trackId] = $this->mergeTrackMeta(
+                    $trackMeta[$trackId] ?? null,
+                    [
+                        'spotify_track_id' => $trackId,
+                        'name' => $row['track_name'],
+                        'artist_name' => $row['artist_name'],
+                        'album_name' => $row['album_name'],
+                        'duration_ms' => $row['duration_ms'],
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ],
+                );
 
                 if (str_starts_with($trackId, 'local_') && filled($row['artist_id'])) {
                     $localTrackArtists[$trackId] = $row['artist_id'];
@@ -270,6 +273,35 @@ class HistoryImportService
             'artist_name' => $artistName,
             'album_name' => $albumName,
         ];
+    }
+
+    /**
+     * Combine repeated plays of the same track without losing metadata.
+     *
+     * A play can occasionally arrive without an artist or album name. Keep the
+     * first complete value instead of letting a sparse entry overwrite it.
+     *
+     * @param  array<string, mixed>|null  $existing
+     * @param  array<string, mixed>  $incoming
+     * @return array<string, mixed>
+     */
+    private function mergeTrackMeta(?array $existing, array $incoming): array
+    {
+        if ($existing === null) {
+            return $incoming;
+        }
+
+        foreach (['name', 'artist_name', 'album_name'] as $key) {
+            if (blank($existing[$key]) && filled($incoming[$key])) {
+                $existing[$key] = $incoming[$key];
+            }
+        }
+
+        if (! is_numeric($existing['duration_ms']) && is_numeric($incoming['duration_ms'])) {
+            $existing['duration_ms'] = $incoming['duration_ms'];
+        }
+
+        return $existing;
     }
 
     /**
