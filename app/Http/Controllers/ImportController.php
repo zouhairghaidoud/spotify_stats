@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ImportHistoryJob;
+use App\Models\HistoryImport;
 use App\Services\HistoryImportService;
-use App\Services\TrackMetadataService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -12,21 +13,20 @@ use Throwable;
 class ImportController extends Controller
 {
     /**
-     * Import a Spotify data export and enrich its track metadata.
+     * Queue a Spotify data export for background import.
      */
     public function store(
         Request $request,
         HistoryImportService $imports,
-        TrackMetadataService $metadata,
     ): RedirectResponse {
         $request->validate([
             'file' => ['required', 'file', 'extensions:json,zip', 'max:51200'],
         ]);
 
-        $user = $request->user();
+        $file = $request->file('file');
 
         try {
-            $result = $imports->import($user, $request->file('file'));
+            $imports->assertReadable($file);
         } catch (Throwable $exception) {
             report($exception);
 
@@ -35,20 +35,19 @@ class ImportController extends Controller
             ]);
         }
 
-        try {
-            $metadata->enrich($user);
-        } catch (Throwable $exception) {
-            report($exception);
-        }
+        $path = $file->store('imports', 'local');
 
-        $message = "Imported {$result['imported']} plays from {$result['files']} file(s).";
+        $import = $request->user()->historyImports()->create([
+            'status' => HistoryImport::STATUS_PENDING,
+            'original_name' => $file->getClientOriginalName(),
+            'stored_path' => $path,
+        ]);
 
-        if ($result['skipped'] > 0) {
-            $message .= " Skipped {$result['skipped']} short or invalid entries.";
-        }
+        ImportHistoryJob::dispatch($import);
 
-        return back()
-            ->with('success', $message)
-            ->with('import_result', $result);
+        return back()->with(
+            'success',
+            'Your history export is queued. This page will update as it imports.',
+        );
     }
 }

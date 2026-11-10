@@ -21,10 +21,16 @@ class RecapController extends Controller
     {
         $user = $request->user();
         $token = $user->recap_token;
+        $timezone = $this->resolveTimezone($request);
+        $years = $recap->availableYears($user);
+        $year = $request->query('year');
+        $year = is_numeric($year) && in_array((int) $year, $years, true) ? (int) $year : null;
 
         return Inertia::render('Recap', [
             'shared' => false,
-            'recap' => $recap->forUser($user, $this->resolveTimezone($request)),
+            'recap' => $recap->forUser($user, $timezone, $year),
+            'year' => $year,
+            'years' => $years,
             'publicUrl' => filled($token) ? route('recap.public', $token) : null,
             'imageUrl' => filled($token) ? route('recap.image', $token) : null,
         ]);

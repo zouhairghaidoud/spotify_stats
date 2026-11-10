@@ -82,6 +82,36 @@ it('builds the recap from stored plays', function () {
         ->and($recap['peak_hour'])->toBe(['hour' => 14, 'plays' => 2]);
 });
 
+it('scopes the recap to a requested year', function () {
+    $user = User::factory()->create();
+
+    recapTrack('track-a', 'Track A', 'artist-1', 'Artist One');
+    recapTrack('track-b', 'Track B', 'artist-1', 'Artist One');
+
+    recapPlay($user, 'track-a', '2025-06-01 10:00:00', 210000, 'artist-1');
+    recapPlay($user, 'track-a', '2025-06-02 10:00:00', 210000, 'artist-1');
+    recapPlay($user, 'track-b', '2026-06-01 10:00:00', 210000, 'artist-1');
+
+    $recap = app(RecapService::class)->forUser($user, 'UTC', 2025);
+
+    expect($recap['year'])->toBe(2025)
+        ->and($recap['overview']['plays'])->toBe(2)
+        ->and($recap['top_tracks'])->toHaveCount(1)
+        ->and($recap['top_tracks'][0]['name'])->toBe('Track A')
+        ->and($recap['top_artist']['plays'])->toBe(2)
+        ->and($recap['top_album']['plays'])->toBe(2)
+        ->and($recap['period']['from'])->toStartWith('2025-06-01');
+});
+
+it('lists the years available in the recap', function () {
+    $user = User::factory()->create();
+
+    recapPlay($user, 'track-a', '2024-03-01 10:00:00', 210000, 'artist-1');
+    recapPlay($user, 'track-a', '2026-03-01 10:00:00', 210000, 'artist-1');
+
+    expect(app(RecapService::class)->availableYears($user))->toBe([2026, 2025, 2024]);
+});
+
 it('includes the most played album in the recap', function () {
     $user = User::factory()->create();
 
@@ -132,6 +162,40 @@ it('renders the owner recap page', function () {
             ->where('recap.top_artist.name', 'Artist One')
             ->where('recap.top_tracks.0.name', 'Track A')
             ->where('publicUrl', null));
+});
+
+it('renders the recap for a selected year', function () {
+    $user = User::factory()->create();
+
+    recapTrack('track-a', 'Track A', 'artist-1', 'Artist One');
+    recapPlay($user, 'track-a', '2025-06-01 10:00:00', 210000, 'artist-1');
+    recapPlay($user, 'track-a', '2026-06-01 10:00:00', 210000, 'artist-1');
+
+    $this->actingAs($user)
+        ->get('/recap?year=2025')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Recap')
+            ->where('year', 2025)
+            ->where('years', [2026, 2025])
+            ->where('recap.year', 2025)
+            ->where('recap.overview.plays', 1)
+            ->where('recap.period.from', fn ($value) => str_starts_with((string) $value, '2025-06-01')));
+});
+
+it('ignores recap years that are not in the history', function () {
+    $user = User::factory()->create();
+
+    recapPlay($user, 'track-a', '2026-06-01 10:00:00', 210000, 'artist-1');
+
+    $this->actingAs($user)
+        ->get('/recap?year=1999')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Recap')
+            ->where('year', null)
+            ->where('recap.year', null)
+            ->where('recap.overview.plays', 1));
 });
 
 it('creates and revokes a public recap link', function () {

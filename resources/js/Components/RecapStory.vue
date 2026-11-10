@@ -52,6 +52,10 @@ const peakLabel = computed(() =>
 );
 
 const periodLabel = computed(() => {
+    if (props.recap.year) {
+        return `Your ${props.recap.year} in listening`;
+    }
+
     const from = props.recap.period.from;
 
     if (!from) {

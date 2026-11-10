@@ -1,9 +1,9 @@
 <script setup>
 import RecapStory from '@/Components/RecapStory.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 
-defineProps({
+const props = defineProps({
     shared: {
         type: Boolean,
         default: false,
@@ -11,6 +11,14 @@ defineProps({
     recap: {
         type: Object,
         required: true,
+    },
+    year: {
+        type: Number,
+        default: null,
+    },
+    years: {
+        type: Array,
+        default: () => [],
     },
     publicUrl: {
         type: String,
@@ -21,6 +29,18 @@ defineProps({
         default: null,
     },
 });
+
+function selectYear(year) {
+    router.get(
+        route('recap'),
+        year === null ? {} : { year },
+        {
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
+        },
+    );
+}
 </script>
 
 <template>
@@ -41,16 +61,39 @@ defineProps({
                         Your listening story
                     </h1>
                     <p class="mt-1 text-sm text-ink-300">
-                        A snapshot of everything tracked so far.
+                        {{
+                            year
+                                ? `A snapshot of everything you played in ${year}.`
+                                : 'A snapshot of everything tracked so far.'
+                        }}
                     </p>
                 </div>
 
-                <Link
-                    :href="route('analytics')"
-                    class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-ink-200 transition hover:bg-white/[0.08]"
-                >
-                    View analytics
-                </Link>
+                <div class="flex flex-wrap items-center gap-2">
+                    <label
+                        v-if="years.length"
+                        class="flex items-center gap-2 text-xs font-semibold text-ink-300"
+                    >
+                        <span class="sr-only">Recap year</span>
+                        <select
+                            :value="year ?? ''"
+                            class="rounded-full border border-white/10 bg-ink-900 px-3 py-2 text-xs font-semibold text-white transition focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/30"
+                            @change="selectYear($event.target.value === '' ? null : Number($event.target.value))"
+                        >
+                            <option value="">All time</option>
+                            <option v-for="option in years" :key="option" :value="option">
+                                {{ option }}
+                            </option>
+                        </select>
+                    </label>
+
+                    <Link
+                        :href="route('analytics')"
+                        class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-ink-200 transition hover:bg-white/[0.08]"
+                    >
+                        View analytics
+                    </Link>
+                </div>
             </div>
         </template>
 

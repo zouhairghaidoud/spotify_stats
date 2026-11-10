@@ -76,6 +76,16 @@ class User extends Authenticatable
     }
 
     /**
+     * The history exports the user has uploaded.
+     *
+     * @return HasMany<HistoryImport, $this>
+     */
+    public function historyImports(): HasMany
+    {
+        return $this->hasMany(HistoryImport::class);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

@@ -56,6 +56,29 @@ it('summarises plays, listening time, and unique tracks and artists', function (
         ->and($analytics['overview']['last_played_at'])->not->toBeNull();
 });
 
+it('filters stored-history analytics to a time range', function () {
+    Carbon::setTestNow('2026-11-10 12:00:00');
+
+    $user = User::factory()->create();
+
+    storePlay($user, 'track-old', '2026-09-01 10:00:00', 180000, 'artist-old');
+    storePlay($user, 'track-new', '2026-11-08 10:00:00', 120000, 'artist-new');
+    storePlay($user, 'track-new', '2026-11-09 10:00:00', 120000, 'artist-new');
+
+    $service = app(ListeningAnalyticsService::class);
+    $allTime = $service->forUser($user, 'UTC');
+    $lastWeek = $service->forUser($user, 'UTC', null, Carbon::now()->subDays(7));
+
+    expect($allTime['overview']['plays'])->toBe(3)
+        ->and($lastWeek['overview']['plays'])->toBe(2)
+        ->and($lastWeek['overview']['unique_tracks'])->toBe(1)
+        ->and($lastWeek['overview']['unique_artists'])->toBe(1)
+        ->and($lastWeek['tracks_leaderboard'])->toHaveCount(1)
+        ->and($lastWeek['tracks_leaderboard'][0]['spotify_track_id'])->toBe('track-new');
+
+    Carbon::setTestNow();
+});
+
 it('weights genres by how often each artist was played', function () {
     $user = User::factory()->create();
 
@@ -301,6 +324,33 @@ it('renders the analytics page from stored plays', function () {
             ->where('trends.series.0.name', 'A')
             ->where('comparison.recent.plays', 1)
             ->where('comparison.year.plays', 1));
+});
+
+it('applies the selected range to the analytics page', function () {
+    Carbon::setTestNow('2026-11-10 12:00:00');
+
+    $user = User::factory()->create();
+
+    storePlay($user, 'track-old', '2026-09-01 10:00:00', 180000, 'artist-1');
+    storePlay($user, 'track-new', '2026-11-08 10:00:00', 120000, 'artist-1');
+
+    $this->actingAs($user)
+        ->get('/analytics?range=7d')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Analytics')
+            ->where('range', '7d')
+            ->where('overview.plays', 1));
+
+    $this->actingAs($user)
+        ->get('/analytics?range=bogus')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Analytics')
+            ->where('range', 'all')
+            ->where('overview.plays', 2));
+
+    Carbon::setTestNow();
 });
 
 it('uses the timezone cookie written by the browser', function () {

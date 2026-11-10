@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\HistoryDataController;
 use App\Http\Controllers\ImportController;
+use App\Http\Controllers\ListeningDetailController;
 use App\Http\Controllers\NowPlayingController;
 use App\Http\Controllers\PlaylistController;
 use App\Http\Controllers\ProfileController;
@@ -35,9 +37,26 @@ Route::get('/recap', [RecapController::class, 'show'])
     ->middleware(['auth', 'verified'])
     ->name('recap');
 
+Route::get('/albums/{album}', [ListeningDetailController::class, 'album'])
+    ->where('album', '.*')
+    ->middleware(['auth', 'verified'])
+    ->name('albums.show');
+
+Route::get('/artists/{artistId}', [ListeningDetailController::class, 'artist'])
+    ->middleware(['auth', 'verified'])
+    ->name('artists.show');
+
 Route::post('/import', [ImportController::class, 'store'])
     ->middleware(['auth', 'verified'])
     ->name('import.store');
+
+Route::get('/history/export', [HistoryDataController::class, 'export'])
+    ->middleware(['auth', 'verified'])
+    ->name('history.export');
+
+Route::delete('/history/imported', [HistoryDataController::class, 'destroyImported'])
+    ->middleware(['auth', 'verified'])
+    ->name('history.destroy-imported');
 
 Route::get('/now-playing', NowPlayingController::class)
     ->middleware(['auth', 'verified'])

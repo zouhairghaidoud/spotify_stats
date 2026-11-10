@@ -1,6 +1,8 @@
 <?php
 
+use App\Jobs\ImportHistoryJob;
 use App\Models\Artist;
+use App\Models\HistoryImport;
 use App\Models\Stream;
 use App\Models\Track;
 use App\Models\User;
@@ -8,6 +10,8 @@ use App\Services\HistoryImportService;
 use App\Services\ListeningAnalyticsService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /**
@@ -220,6 +224,68 @@ it('falls back to oembed when the tracks endpoint returns nothing', function () 
         ->and($track->artist_id)->toBe($artistId)
         ->and($track->album_image_url)->toBe('https://images.example/oembed.jpg')
         ->and(Stream::query()->whereBelongsTo($user)->value('artist_id'))->toBe($artistId);
+});
+
+it('queues an import instead of blocking the request', function () {
+    Queue::fake();
+    Storage::fake('local');
+
+    $user = User::factory()->create();
+    $trackId = str_repeat('q', 22);
+
+    $this->actingAs($user)
+        ->post('/import', ['file' => extendedHistoryFile([extendedPlay($trackId)])])
+        ->assertSessionHasNoErrors()
+        ->assertRedirect();
+
+    $import = HistoryImport::query()->whereBelongsTo($user)->sole();
+
+    expect($import->status)->toBe(HistoryImport::STATUS_PENDING)
+        ->and($import->original_name)->toBe('Streaming_History_Audio_2024.json')
+        ->and(Storage::disk('local')->exists($import->stored_path))->toBeTrue();
+
+    Queue::assertPushed(ImportHistoryJob::class, fn (ImportHistoryJob $job): bool => $job->historyImport->is($import));
+});
+
+it('records a completed status after the import job finishes', function () {
+    Storage::fake('local');
+
+    $user = User::factory()->create();
+    $trackId = str_repeat('r', 22);
+
+    $this->actingAs($user)
+        ->post('/import', ['file' => extendedHistoryFile([extendedPlay($trackId)])])
+        ->assertSessionHasNoErrors();
+
+    $import = HistoryImport::query()->whereBelongsTo($user)->sole();
+
+    expect($import->status)->toBe(HistoryImport::STATUS_COMPLETED)
+        ->and($import->imported)->toBe(1)
+        ->and($import->files)->toBe(1)
+        ->and($import->tracks)->toBe(1)
+        ->and($import->finished_at)->not->toBeNull()
+        ->and(Storage::disk('local')->exists($import->stored_path))->toBeFalse();
+});
+
+it('shows recent imports on the analytics page', function () {
+    $user = User::factory()->create();
+    $import = $user->historyImports()->create([
+        'status' => HistoryImport::STATUS_COMPLETED,
+        'original_name' => 'history.json',
+        'stored_path' => 'imports/history.json',
+        'imported' => 12,
+        'files' => 1,
+    ]);
+
+    $this->actingAs($user)
+        ->get('/analytics')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Analytics')
+            ->has('imports', 1)
+            ->where('imports.0.id', $import->id)
+            ->where('imports.0.status', HistoryImport::STATUS_COMPLETED)
+            ->where('imports.0.imported', 12));
 });
 
 it('rejects invalid uploads', function () {

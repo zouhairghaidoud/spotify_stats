@@ -34,6 +34,7 @@ class DashboardController extends Controller
         $shared = [
             'spotifyApp' => $this->spotifyAppProps($user),
             'importSummary' => $imports->summary($user),
+            'imports' => $imports->recent($user),
         ];
 
         if (! $user->isConnectedToSpotify()) {

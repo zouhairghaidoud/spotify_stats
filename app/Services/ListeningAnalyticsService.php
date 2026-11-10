@@ -54,11 +54,16 @@ class ListeningAnalyticsService
      *     tracks_leaderboard: array<int, array{spotify_track_id: string, name: string, artist_id: string|null, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
      * }
      */
-    public function forUser(User $user, ?string $timezone = null, ?string $search = null): array
-    {
+    public function forUser(
+        User $user,
+        ?string $timezone = null,
+        ?string $search = null,
+        ?Carbon $from = null,
+        ?Carbon $to = null,
+    ): array {
         $timezone = $this->timezone($timezone);
 
-        $totals = $user->streams()
+        $totals = $this->windowed($user->streams(), $from, $to)
             ->selectRaw('COUNT(*) as plays')
             ->selectRaw('COALESCE(SUM(duration_ms), 0) as duration_ms')
             ->selectRaw('AVG(duration_ms) as average_duration_ms')
@@ -72,7 +77,7 @@ class ListeningAnalyticsService
         $durationMs = (int) ($totals->duration_ms ?? 0);
         $averageDurationMs = $totals->average_duration_ms ?? null;
 
-        [$heatmap, $days] = $this->heatmapAndDays($user, $timezone);
+        [$heatmap, $days] = $this->heatmapAndDays($user, $timezone, $from, $to);
 
         return [
             'timezone' => $timezone,
@@ -84,19 +89,34 @@ class ListeningAnalyticsService
                 'average_track_seconds' => $averageDurationMs === null
                     ? null
                     : (int) round((float) $averageDurationMs / 1000),
-                'first_played_at' => $this->timestamp($user->streams()->min('played_at')),
-                'last_played_at' => $this->timestamp($user->streams()->max('played_at')),
+                'first_played_at' => $this->timestamp($this->windowed($user->streams(), $from, $to)->min('played_at')),
+                'last_played_at' => $this->timestamp($this->windowed($user->streams(), $from, $to)->max('played_at')),
             ],
-            'top_genres' => $this->topGenres($user),
-            'top_albums' => $this->topAlbums($user),
+            'top_genres' => $this->topGenres($user, $from, $to),
+            'top_albums' => $this->topAlbums($user, $from, $to),
             'heatmap' => [
                 'counts' => $heatmap,
                 'max' => $this->heatmapMax($heatmap),
             ],
-            'discovery' => $this->discovery($user),
+            'discovery' => $this->discovery($user, $from, $to),
             'streaks' => $this->streaks($days, $timezone),
-            'tracks_leaderboard' => $this->tracksLeaderboard($user, $search),
+            'tracks_leaderboard' => $this->tracksLeaderboard($user, $search, $from, $to),
         ];
+    }
+
+    /**
+     * Apply an inclusive time window to a stream query.
+     *
+     * @template TQuery of \Illuminate\Database\Eloquent\Builder<Stream>
+     *
+     * @param  TQuery  $query
+     * @return TQuery
+     */
+    private function windowed($query, ?Carbon $from, ?Carbon $to)
+    {
+        return $query
+            ->when($from !== null, fn ($query) => $query->where('played_at', '>=', $from))
+            ->when($to !== null, fn ($query) => $query->where('played_at', '<', $to));
     }
 
     /**
@@ -104,9 +124,9 @@ class ListeningAnalyticsService
      *
      * @return array<int, array{spotify_track_id: string, name: string, artist_id: string|null, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
      */
-    private function tracksLeaderboard(User $user, ?string $search): array
+    private function tracksLeaderboard(User $user, ?string $search, ?Carbon $from = null, ?Carbon $to = null): array
     {
-        $query = $user->streams()
+        $query = $this->windowed($user->streams(), $from, $to)
             ->leftJoin('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
             ->selectRaw('streams.spotify_track_id as spotify_track_id')
             ->selectRaw("COALESCE(tracks.name, 'Unknown track') as name")
@@ -149,9 +169,9 @@ class ListeningAnalyticsService
      *
      * @return array<int, array{album_name: string, artist_name: string|null, cover_url: string|null, plays: int, minutes: int, unique_tracks_played: int}>
      */
-    private function topAlbums(User $user): array
+    private function topAlbums(User $user, ?Carbon $from = null, ?Carbon $to = null): array
     {
-        return $user->streams()
+        return $this->windowed($user->streams(), $from, $to)
             ->join('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
             ->whereNotNull('tracks.album_name')
             ->where('tracks.album_name', '!=', '')
@@ -187,19 +207,18 @@ class ListeningAnalyticsService
      *
      * @return array{new_artists: int, plays: int, rate: float}
      */
-    private function discovery(User $user): array
+    private function discovery(User $user, ?Carbon $from = null, ?Carbon $to = null): array
     {
-        $windowStart = now()->subDays(self::DISCOVERY_DAYS);
+        $windowStart = $from ?? now()->subDays(self::DISCOVERY_DAYS);
 
-        $plays = (int) $user->streams()
-            ->where('played_at', '>=', $windowStart)
-            ->count();
+        $plays = (int) $this->windowed($user->streams(), $windowStart, $to)->count();
 
         $newArtists = $user->streams()
             ->whereNotNull('artist_id')
             ->selectRaw('artist_id, MIN(played_at) as first_played')
             ->groupBy('artist_id')
             ->havingRaw('MIN(played_at) >= ?', [$windowStart->copy()->utc()->format('Y-m-d H:i:s')])
+            ->when($to !== null, fn ($query) => $query->havingRaw('MIN(played_at) < ?', [$to->copy()->utc()->format('Y-m-d H:i:s')]))
             ->toBase()
             ->get()
             ->count();
@@ -429,12 +448,12 @@ class ListeningAnalyticsService
      *
      * @return array{0: array<int, array<int, int>>, 1: array<string, true>}
      */
-    private function heatmapAndDays(User $user, string $timezone): array
+    private function heatmapAndDays(User $user, string $timezone, ?Carbon $from = null, ?Carbon $to = null): array
     {
         $heatmap = array_fill(0, 7, array_fill(0, 24, 0));
         $days = [];
 
-        $user->streams()
+        $this->windowed($user->streams(), $from, $to)
             ->orderBy('played_at')
             ->select(['played_at'])
             ->cursor()
@@ -453,9 +472,9 @@ class ListeningAnalyticsService
      *
      * @return array<int, array{genre: string, plays: int}>
      */
-    private function topGenres(User $user): array
+    private function topGenres(User $user, ?Carbon $from = null, ?Carbon $to = null): array
     {
-        $artistPlays = $user->streams()
+        $artistPlays = $this->windowed($user->streams(), $from, $to)
             ->whereNotNull('artist_id')
             ->selectRaw('artist_id, COUNT(*) as plays')
             ->groupBy('artist_id')

@@ -61,6 +61,10 @@ const props = defineProps({
             last_imported_at: null,
         }),
     },
+    imports: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const ranges = [
@@ -946,7 +950,7 @@ function formatPlayedAtAbsolute(value) {
 
             <!-- History import works with or without Spotify OAuth -->
             <section class="surface-card p-5 sm:p-6">
-                <HistoryImport :summary="importSummary" />
+                <HistoryImport :summary="importSummary" :imports="imports" />
             </section>
         </div>
     </AuthenticatedLayout>

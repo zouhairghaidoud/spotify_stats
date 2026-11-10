@@ -40,9 +40,10 @@ class HistoryImportService
     /**
      * Import a JSON or ZIP export and return counters for the UI.
      *
+     * @param  callable(int, int, int): void|null  $onProgress
      * @return array{imported: int, skipped: int, files: int, tracks: int}
      */
-    public function import(User $user, UploadedFile $file): array
+    public function import(User $user, UploadedFile $file, ?callable $onProgress = null): array
     {
         $imported = 0;
         $skipped = 0;
@@ -91,7 +92,15 @@ class HistoryImportService
                 if (count($pendingRows) >= self::CHUNK_SIZE) {
                     $imported += $this->insertStreams($pendingRows);
                     $pendingRows = [];
+
+                    if ($onProgress !== null) {
+                        $onProgress($imported, $skipped, $files);
+                    }
                 }
+            }
+
+            if ($onProgress !== null) {
+                $onProgress($imported, $skipped, $files);
             }
         }
 
@@ -109,6 +118,87 @@ class HistoryImportService
             'files' => $files,
             'tracks' => count($trackMeta),
         ];
+    }
+
+    /**
+     * Cheaply confirm that an upload looks like a readable Spotify export.
+     *
+     * Runs before the file is queued so obviously broken files still return a
+     * normal validation error on the current request.
+     */
+    public function assertReadable(UploadedFile $file): void
+    {
+        $extension = strtolower($file->getClientOriginalExtension());
+
+        if ($extension === 'zip') {
+            $zip = new ZipArchive;
+
+            if ($zip->open($file->getRealPath()) !== true) {
+                throw new RuntimeException('The uploaded ZIP file could not be opened.');
+            }
+
+            $hasJson = false;
+
+            try {
+                for ($index = 0; $index < $zip->numFiles; $index++) {
+                    $name = $zip->getNameIndex($index);
+
+                    if (is_string($name) && str_ends_with(strtolower($name), '.json')) {
+                        $hasJson = true;
+
+                        break;
+                    }
+                }
+            } finally {
+                $zip->close();
+            }
+
+            if (! $hasJson) {
+                throw new InvalidArgumentException('The uploaded ZIP does not contain any JSON files.');
+            }
+
+            return;
+        }
+
+        $contents = @file_get_contents($file->getRealPath());
+
+        if (! is_string($contents) || ! is_array(json_decode($contents, true))) {
+            throw new InvalidArgumentException('The uploaded file is not valid JSON.');
+        }
+    }
+
+    /**
+     * Recent imports for the status panel.
+     *
+     * @return array<int, array{id: int, status: string, original_name: string, imported: int, skipped: int, files: int, tracks: int, error: string|null, created_at: string|null, started_at: string|null, finished_at: string|null}>
+     */
+    public function recent(User $user, int $limit = 5): array
+    {
+        return $user->historyImports()
+            ->latest()
+            ->limit($limit)
+            ->get()
+            ->map(fn ($import): array => [
+                'id' => $import->id,
+                'status' => $import->status,
+                'original_name' => $import->original_name,
+                'imported' => $import->imported,
+                'skipped' => $import->skipped,
+                'files' => $import->files,
+                'tracks' => $import->tracks,
+                'error' => $import->error,
+                'created_at' => $import->created_at?->toIso8601String(),
+                'started_at' => $import->started_at?->toIso8601String(),
+                'finished_at' => $import->finished_at?->toIso8601String(),
+            ])
+            ->all();
+    }
+
+    public function hasActiveImport(User $user): bool
+    {
+        return $user->historyImports()
+            ->whereIn('status', ['pending', 'running'])
+            ->exists();
     }
 
     /**

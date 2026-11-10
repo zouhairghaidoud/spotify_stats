@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Artist;
 use App\Models\Track;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 
 /**
  * Builds the wrapped-style recap: top tracks, top artist, minutes, genres,
@@ -16,11 +17,32 @@ class RecapService
 
     private const TOP_GENRES = 3;
 
+    /**
+     * @return array<int, int>
+     */
+    public function availableYears(User $user): array
+    {
+        $first = $user->streams()->min('played_at');
+        $last = $user->streams()->max('played_at');
+
+        if ($first === null || $last === null) {
+            return [];
+        }
+
+        $firstYear = Carbon::parse($first)->year;
+        $lastYear = Carbon::parse($last)->year;
+
+        return $firstYear > $lastYear
+            ? []
+            : range($lastYear, $firstYear);
+    }
+
     public function __construct(private readonly ListeningAnalyticsService $analytics) {}
 
     /**
      * @return array{
      *     timezone: string,
+     *     year: int|null,
      *     period: array{from: string|null, to: string|null},
      *     overview: array{plays: int, minutes: int, unique_artists: int, unique_tracks: int},
      *     top_tracks: array<int, array{spotify_track_id: string, name: string, artist_name: string|null, album_name: string|null, cover_url: string|null, duration_ms: int|null, plays: int}>,
@@ -30,12 +52,16 @@ class RecapService
      *     peak_hour: array{hour: int, plays: int}|null
      * }
      */
-    public function forUser(User $user, ?string $timezone = null): array
+    public function forUser(User $user, ?string $timezone = null, ?int $year = null): array
     {
-        $analytics = $this->analytics->forUser($user, $timezone);
+        $timezone = $this->timezone($timezone);
+        [$from, $to] = $this->window($year, $timezone);
+
+        $analytics = $this->analytics->forUser($user, $timezone, null, $from, $to);
 
         return [
             'timezone' => $analytics['timezone'],
+            'year' => $year,
             'period' => [
                 'from' => $analytics['overview']['first_played_at'],
                 'to' => $analytics['overview']['last_played_at'],
@@ -46,8 +72,8 @@ class RecapService
                 'unique_artists' => $analytics['overview']['unique_artists'],
                 'unique_tracks' => $analytics['overview']['unique_tracks'],
             ],
-            'top_tracks' => $this->topTracks($user),
-            'top_artist' => $this->topArtist($user),
+            'top_tracks' => $this->topTracks($user, $from, $to),
+            'top_artist' => $this->topArtist($user, $from, $to),
             'top_album' => $analytics['top_albums'][0] ?? null,
             'top_genres' => array_slice($analytics['top_genres'], 0, self::TOP_GENRES),
             'peak_hour' => $this->peakHour($analytics['heatmap']['counts']),
@@ -55,11 +81,27 @@ class RecapService
     }
 
     /**
+     * @return array{0: Carbon|null, 1: Carbon|null}
+     */
+    private function window(?int $year, string $timezone): array
+    {
+        if ($year === null) {
+            return [null, null];
+        }
+
+        $from = Carbon::create($year, 1, 1, 0, 0, 0, $timezone);
+
+        return [$from, $from->copy()->addYear()];
+    }
+
+    /**
      * @return array<int, array{spotify_track_id: string, name: string, artist_name: string|null, album_name: string|null, cover_url: string|null, duration_ms: int|null, plays: int}>
      */
-    private function topTracks(User $user): array
+    private function topTracks(User $user, ?Carbon $from = null, ?Carbon $to = null): array
     {
         $rows = $user->streams()
+            ->when($from !== null, fn ($query) => $query->where('played_at', '>=', $from))
+            ->when($to !== null, fn ($query) => $query->where('played_at', '<', $to))
             ->selectRaw('spotify_track_id, COUNT(*) as plays')
             ->groupBy('spotify_track_id')
             ->orderByDesc('plays')
@@ -97,9 +139,11 @@ class RecapService
     /**
      * @return array{artist_id: string, name: string, plays: int, share: float}|null
      */
-    private function topArtist(User $user): ?array
+    private function topArtist(User $user, ?Carbon $from = null, ?Carbon $to = null): ?array
     {
         $row = $user->streams()
+            ->when($from !== null, fn ($query) => $query->where('played_at', '>=', $from))
+            ->when($to !== null, fn ($query) => $query->where('played_at', '<', $to))
             ->whereNotNull('artist_id')
             ->selectRaw('artist_id, COUNT(*) as plays')
             ->groupBy('artist_id')
@@ -118,7 +162,11 @@ class RecapService
             ?? Track::query()->where('artist_id', $artistId)->value('artist_name')
             ?? 'Unknown artist';
 
-        $totalArtistsPlays = (int) $user->streams()->whereNotNull('artist_id')->count();
+        $totalArtistsPlays = (int) $user->streams()
+            ->when($from !== null, fn ($query) => $query->where('played_at', '>=', $from))
+            ->when($to !== null, fn ($query) => $query->where('played_at', '<', $to))
+            ->whereNotNull('artist_id')
+            ->count();
 
         return [
             'artist_id' => $artistId,
@@ -128,6 +176,15 @@ class RecapService
                 ? round((int) $row->plays / $totalArtistsPlays, 4)
                 : 0.0,
         ];
+    }
+
+    private function timezone(?string $timezone): string
+    {
+        if (is_string($timezone) && $timezone !== '' && in_array($timezone, timezone_identifiers_list(), true)) {
+            return $timezone;
+        }
+
+        return (string) config('app.timezone', 'UTC');
     }
 
     /**

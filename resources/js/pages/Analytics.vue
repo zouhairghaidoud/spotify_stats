@@ -42,6 +42,10 @@ const props = defineProps({
         type: String,
         default: '',
     },
+    range: {
+        type: String,
+        default: 'all',
+    },
     importSummary: {
         type: Object,
         default: () => ({
@@ -49,6 +53,10 @@ const props = defineProps({
             total_plays: 0,
             last_imported_at: null,
         }),
+    },
+    imports: {
+        type: Array,
+        default: () => [],
     },
     heatmap: {
         type: Object,
@@ -74,6 +82,46 @@ const props = defineProps({
 
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const hourLabels = [0, 6, 12, 18];
+
+const RANGES = [
+    { value: '7d', label: '7 days' },
+    { value: '30d', label: '30 days' },
+    { value: '90d', label: '90 days' },
+    { value: '1y', label: '1 year' },
+    { value: 'all', label: 'All time' },
+];
+
+const rangeLabel = computed(
+    () => RANGES.find((option) => option.value === props.range)?.label ?? 'All time',
+);
+
+function queryParams(overrides = {}) {
+    const params = { ...overrides };
+
+    if (overrides.search === undefined && props.search) {
+        params.search = props.search;
+    }
+
+    if (overrides.range === undefined && props.range !== 'all') {
+        params.range = props.range;
+    }
+
+    return Object.fromEntries(
+        Object.entries(params).filter(([, value]) => value !== '' && value !== null),
+    );
+}
+
+function selectRange(range) {
+    if (range === props.range) {
+        return;
+    }
+
+    router.get(route('analytics'), queryParams({ range }), {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+    });
+}
 
 const hasPlays = computed(() => props.overview.plays > 0);
 
@@ -105,7 +153,7 @@ watch(searchTerm, (value) => {
 
         router.get(
             route('analytics'),
-            search === '' ? {} : { search },
+            queryParams({ search }),
             {
                 preserveState: true,
                 preserveScroll: true,
@@ -412,11 +460,34 @@ function cellLabel(dayIndex, hour, count) {
                         Your listening, measured
                     </h1>
                     <p class="mt-1 text-sm text-ink-300">
-                        Built from every play we have tracked so far.
+                        Built from every play we have tracked so far
+                        <span class="text-ink-500">·</span>
+                        {{ rangeLabel }}
                     </p>
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
+                    <div
+                        class="flex flex-wrap items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1"
+                        role="group"
+                        aria-label="Analytics time range"
+                    >
+                        <button
+                            v-for="option in RANGES"
+                            :key="option.value"
+                            type="button"
+                            class="rounded-full px-3 py-1.5 text-xs font-semibold transition"
+                            :class="
+                                range === option.value
+                                    ? 'bg-brand-500 text-ink-950'
+                                    : 'text-ink-300 hover:bg-white/[0.06] hover:text-white'
+                            "
+                            :aria-pressed="range === option.value"
+                            @click="selectRange(option.value)"
+                        >
+                            {{ option.label }}
+                        </button>
+                    </div>
                     <span
                         v-if="overview.first_played_at"
                         class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-ink-300"
@@ -457,18 +528,32 @@ function cellLabel(dayIndex, hour, count) {
                 </div>
 
                 <h2 class="mt-5 text-xl font-bold text-white">
-                    Nothing tracked yet
+                    {{ range === 'all' ? 'Nothing tracked yet' : 'No plays in this range' }}
                 </h2>
                 <p class="mx-auto mt-2 max-w-md text-sm leading-relaxed text-ink-300">
-                    Analytics are computed from plays we have already stored.
-                    Once you listen to a few tracks, your totals, genres, and
-                    heatmap appear here. You can also upload a Spotify data
-                    export to unlock your full listening history instantly.
+                    <template v-if="range === 'all'">
+                        Analytics are computed from plays we have already stored.
+                        Once you listen to a few tracks, your totals, genres, and
+                        heatmap appear here. You can also upload a Spotify data
+                        export to unlock your full listening history instantly.
+                    </template>
+                    <template v-else>
+                        Pick a wider range or switch back to all time to see your
+                        stored listening history.
+                    </template>
                 </p>
 
                 <div class="mt-7 flex flex-wrap items-center justify-center gap-3">
+                    <button
+                        v-if="range !== 'all'"
+                        type="button"
+                        class="inline-flex items-center gap-2 rounded-full bg-brand-500 px-6 py-3 text-sm font-bold text-ink-950 shadow-lg shadow-brand-500/20 transition hover:bg-brand-400"
+                        @click="selectRange('all')"
+                    >
+                        Show all time
+                    </button>
                     <a
-                        v-if="!spotifyConnected"
+                        v-else-if="!spotifyConnected"
                         :href="route('spotify.redirect')"
                         class="inline-flex items-center gap-2 rounded-full bg-brand-500 px-6 py-3 text-sm font-bold text-ink-950 shadow-lg shadow-brand-500/20 transition hover:bg-brand-400"
                     >
@@ -484,8 +569,8 @@ function cellLabel(dayIndex, hour, count) {
                 </div>
             </section>
 
-            <section v-if="!hasPlays" class="surface-card p-5 sm:p-6">
-                <HistoryImport :summary="importSummary" />
+            <section v-if="!hasPlays && range === 'all'" class="surface-card p-5 sm:p-6">
+                <HistoryImport :summary="importSummary" :imports="imports" />
             </section>
 
             <template v-else>
@@ -830,6 +915,11 @@ function cellLabel(dayIndex, hour, count) {
                             :key="`${album.album_name}-${album.artist_name}`"
                             class="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"
                         >
+                            <Link
+                                :href="route('albums.show', { album: album.album_name, artist: album.artist_name })"
+                                class="block"
+                                :title="`Open ${album.album_name} details`"
+                            >
                             <div class="relative">
                                 <img
                                     v-if="album.cover_url"
@@ -879,6 +969,7 @@ function cellLabel(dayIndex, hour, count) {
                                     {{ album.unique_tracks_played === 1 ? 'track' : 'tracks' }}
                                 </span>
                             </div>
+                            </Link>
                         </li>
                     </ol>
 
@@ -973,16 +1064,14 @@ function cellLabel(dayIndex, hour, count) {
                                     {{ track.name }}
                                 </p>
                                 <p class="truncate text-xs text-ink-400">
-                                    <a
-                                        v-if="spotifyArtistUrl(track.artist_id)"
-                                        :href="spotifyArtistUrl(track.artist_id)"
-                                        target="_blank"
-                                        rel="noreferrer"
+                                    <Link
+                                        v-if="track.artist_id"
+                                        :href="route('artists.show', track.artist_id)"
                                         class="transition hover:text-brand-300 hover:underline"
-                                        :title="`Open ${track.artist_name} on Spotify`"
+                                        :title="`View ${track.artist_name} details`"
                                     >
                                         {{ track.artist_name }}
-                                    </a>
+                                    </Link>
                                     <span v-else>
                                         {{ track.artist_name ?? 'Unknown artist' }}
                                     </span>

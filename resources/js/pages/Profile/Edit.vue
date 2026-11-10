@@ -31,6 +31,10 @@ defineProps({
             last_imported_at: null,
         }),
     },
+    imports: {
+        type: Array,
+        default: () => [],
+    },
 });
 </script>
 
@@ -71,7 +75,7 @@ defineProps({
             </section>
 
             <section class="surface-card p-6 sm:p-8">
-                <HistoryImport :summary="importSummary" />
+                <HistoryImport :summary="importSummary" :imports="imports" />
             </section>
 
             <section class="surface-card p-6 sm:p-8">

@@ -29,6 +29,7 @@ class ProfileController extends Controller
             'status' => session('status'),
             'spotifyApp' => $this->spotifyAppProps($user),
             'importSummary' => $imports->summary($user),
+            'imports' => $imports->recent($user),
         ]);
     }
 
