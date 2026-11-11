@@ -1,20 +1,28 @@
 # Spotify Stats
 
-Personal Spotify listening analytics. Connect Spotify once and the app collects your listening
-history, caches your top tracks and artists, and turns the stored plays into analytics that need no
-Spotify connection to render.
+Personal Spotify listening analytics. Connect Spotify once or upload your Spotify data export, and the
+app turns the stored plays into analytics that need no Spotify connection to render.
 
-- **Dashboard** — live now playing (polled every five seconds), top tracks, top artists (4 weeks / 6 months / 1 year), recently played.
+- **Dashboard** — live now playing (polled every five seconds), top tracks, top artists (4 weeks / 6 months / 1 year), top albums, recently played.
 - **Analytics** — listening time, play counts, unique tracks and artists, average track length, top
-  genres, a weekday × hour heatmap, discovery rate, and listening streaks.
+  genres, top albums, a weekday × hour heatmap, discovery rate, listening streaks, and
+  completion/skip rates from imported plays.
+- **Filters** — narrow analytics by genre, artist, and playback context (playlist, album, radio, import, …).
 - **Charts** — a 12-week trend line per top artist with weekly rank movement, and a side-by-side
   comparison of the last 4 weeks against the last year, drawn with Chart.js.
 - **Recap** — a wrapped-style `/recap` story with your top five tracks, top artist, minutes, genres,
-  and peak listening hour, exportable as a PNG from the browser.
+  and peak listening hour, exportable as a PNG from the browser. Optional **year-vs-year comparison**.
+- **Detail pages** — per-artist and per-album play history with monthly timelines, top tracks, and albums.
+- **Genres** — MusicBrainz lookup with a Last.fm fallback, plus manual per-artist genre overrides.
+- **History import** — upload a Spotify *Extended streaming history* JSON or ZIP in the background, then
+  delete imported plays without touching synced history.
+- **Bring your own Spotify app** — users can save their own client id/secret from the profile page;
+  the environment app remains the fallback.
 - **Sharing** — an optional tokenized `/u/{token}` page with a server-rendered Open Graph card.
 - **Playlists** — create a private playlist from your current top tracks or from forgotten favorites you
   played repeatedly but have not touched in two weeks.
-- **Stored history** — a `streams` table of every play collected from `/me/player/recently-played`.
+- **Stored history** — a `streams` table of every play collected from `/me/player/recently-played` or
+  imported from a data export.
 - **Resilience** — per-user, per-range caching with stale-data fallback when Spotify is slow, down,
   or rate limiting.
 
@@ -29,17 +37,18 @@ Spotify connection to render.
 5. [Environment variables](#environment-variables)
 6. [Running the app](#running-the-app)
 7. [How it works](#how-it-works)
-8. [Data model](#data-model)
-9. [Routes](#routes)
-10. [Services reference](#services-reference)
-11. [Commands and schedule](#commands-and-schedule)
-12. [Analytics definitions](#analytics-definitions)
-13. [Recap and sharing](#recap-and-sharing)
-14. [Playlist tools](#playlist-tools)
-15. [Timezones](#timezones)
-16. [Testing](#testing)
-17. [Known limitations](#known-limitations)
-18. [Project structure](#project-structure)
+8. [History import](#history-import)
+9. [Data model](#data-model)
+10. [Routes](#routes)
+11. [Services reference](#services-reference)
+12. [Commands and schedule](#commands-and-schedule)
+13. [Analytics definitions](#analytics-definitions)
+14. [Recap and sharing](#recap-and-sharing)
+15. [Playlist tools](#playlist-tools)
+16. [Timezones](#timezones)
+17. [Testing](#testing)
+18. [Known limitations](#known-limitations)
+19. [Project structure](#project-structure)
 
 ---
 
@@ -77,6 +86,8 @@ buttons. Tokens are stored encrypted and can be revoked from the Spotify account
 - Composer 2
 - Node.js 20+ and npm
 - A Spotify developer app (see below)
+- A queue worker for background imports and genre backfills (the default `database` queue works out
+  of the box; run `php artisan queue:work`)
 
 ---
 
@@ -89,9 +100,12 @@ npm install
 cp .env.example .env
 php artisan key:generate
 
-# Configure the database and Spotify credentials in .env, then:
+# Configure the database, Spotify, and optional MusicBrainz/Last.fm values in .env, then:
 php artisan migrate
 npm run build
+
+# Background imports and genre backfills use the database queue:
+php artisan queue:work
 ```
 
 Serve the application:
@@ -121,6 +135,11 @@ with `npm run build` or restart `npm run dev`.
 
 No additional scopes are requested by the app; Spotify will show exactly the scopes listed above.
 
+Users can also save their own Spotify app credentials from **Profile → Spotify app**. A custom client
+id/secret is used for that user's authorization and token refresh; changing or removing it clears the
+user's tokens because tokens issued by one Spotify app cannot be refreshed by another. Guests and
+users without custom credentials use the environment app.
+
 ---
 
 ## Environment variables
@@ -134,12 +153,18 @@ The application reads these values (see `config/services.php` and `.env.example`
 | `DB_CONNECTION` | `mysql` (current local setup) or `sqlite` |
 | `CACHE_STORE` | Cache driver. `database` works out of the box |
 | `SESSION_DRIVER` | `database` by default |
+| `QUEUE_CONNECTION` | `database` by default; `sync` runs imports inline |
 | `SPOTIFY_CLIENT_ID` | Spotify app client id |
 | `SPOTIFY_CLIENT_SECRET` | Spotify app client secret |
 | `SPOTIFY_REDIRECT_URI` | Must exactly match the redirect URI in the Spotify dashboard |
+| `MUSICBRAINZ_USER_AGENT` | User agent sent to MusicBrainz (recommended when using genre lookups) |
+| `MUSICBRAINZ_DELAY_MS` | Delay between MusicBrainz calls, default `1500` |
+| `MUSICBRAINZ_RETRY_SLEEP_SECONDS` | Backoff for MusicBrainz `503` responses, default `2` |
+| `LASTFM_API_KEY` | Optional Last.fm API key; enables the genre fallback when MusicBrainz has no tags |
 
 Laravel's cache, sessions, and queue tables are created by the standard migrations, so the database
-drivers work without extra setup.
+drivers work without extra setup. MusicBrainz needs no key, but Last.fm does; without
+`LASTFM_API_KEY` the fallback is skipped and only MusicBrainz and manual overrides apply.
 
 ---
 
@@ -205,7 +230,9 @@ missing or expires within five minutes, and every API call retries once after a 
 | `spotifyStale` | `true` when any section is being served from stale cache |
 | `currentlyPlaying` | Initial `/me/player/currently-playing` payload |
 | `topTracks` / `topArtists` | Cached items for the selected range |
+| `topAlbums` | Albums aggregated from the selected range's top tracks |
 | `recentlyPlayed` | Cached recently played items |
+| `importSummary` / `imports` | History import counters and recent import rows |
 
 Top tracks, top artists, and recently played come from the cache service. The now-playing card starts
 from the dashboard payload and then polls `GET /now-playing` every five seconds (skipped while the tab
@@ -284,6 +311,35 @@ reconnect instead of failing with a `403`.
 
 ---
 
+## History import
+
+Spotify's Web API only exposes the last 50 plays, so the app also ingests the full
+[*Extended streaming history*](https://support.spotify.com/us/article/data-rights-and-privacy-settings/)
+export.
+
+1. `POST /import` (`ImportController@store`) accepts a `.json` or `.zip` file up to 50 MB and checks
+   that it can be read as Spotify history.
+2. The file is stored on the `local` disk and a `history_imports` row is created with status
+   `pending`; `ImportHistoryJob` is queued.
+3. `HistoryImportService` reads every entry, skips plays under `MIN_PLAY_MS` (30 seconds) and entries
+   without a track name or timestamp, and writes rows with `context = json_import`. Plays are
+   deduplicated by `(spotify_track_id, played_at)` and inserted with `insertOrIgnore` in chunks.
+4. Track titles, artists, albums, and durations are upserted into `tracks`; entries with a local
+   Spotify id also get an `artist` row.
+5. `TrackMetadataService` then enriches the most played unresolved tracks with covers and artist ids
+   from Spotify (batched `/v1/tracks` lookups plus an oEmbed fallback).
+6. The import row records `imported`, `skipped`, `files`, and `tracks`, and the page polls or reloads
+   to show progress and errors.
+
+Imported plays are real listening data: `streams.duration_ms` stores the `ms_played` value from the
+export, which is what powers completion/skip analytics. Synced plays store the full track duration
+instead, so they are excluded from those metrics.
+
+`GET /history/export` downloads every stored play as CSV. `DELETE /history/imported` deletes only rows
+with `context = json_import` (and their import records), leaving synced history untouched.
+
+---
+
 ## Data model
 
 ### `users`
@@ -298,6 +354,8 @@ Standard Laravel user columns plus Spotify link data:
 | `spotify_refresh_token` | Encrypted, hidden |
 | `spotify_token_expires_at` | Access token expiry |
 | `spotify_scopes` | Space-separated scopes granted at the last authorization |
+| `spotify_client_id` | Optional per-user Spotify app client id (BYOK) |
+| `spotify_client_secret` | Optional per-user client secret, encrypted and hidden |
 | `recap_token` | 48-character public recap token, unique, nullable |
 | `recap_timezone` | IANA timezone captured when the recap link was created |
 
@@ -314,7 +372,7 @@ One row per Spotify play.
 | `id` | bigint | |
 | `user_id` | FK → `users` | Cascades on delete |
 | `spotify_track_id` | string(32) | |
-| `duration_ms` | unsigned int, nullable | Track length at the time of the play |
+| `duration_ms` | unsigned int, nullable | Full track length for synced plays; actual `ms_played` for imported plays |
 | `artist_id` | string(32), nullable, indexed | Primary artist (`track.artists[0].id`) |
 | `played_at` | timestamp(3), UTC | Spotify's `played_at` |
 | `context` | string(32), nullable | Context type: `playlist`, `album`, `artist`, … |
@@ -333,13 +391,28 @@ Artist metadata snapshot used for genre aggregation.
 | `spotify_artist_id` | string(32), unique | |
 | `name` | string | |
 | `genres` | JSON, nullable | Cast to `array` on the model |
+| `musicbrainz_id` | string(36), nullable | Resolved MusicBrainz artist id |
+| `genres_synced_at` | timestamp, nullable | Last automatic genre lookup |
+| `genres_overridden` | boolean | `true` when edited manually; backfills skip the artist |
 | `created_at` / `updated_at` | timestamps | |
 
 The snapshot is built from `/me/top/artists` across all three ranges, upserted by
 `spotify_artist_id`, and refreshed at most daily (cache key `spotify:user:{id}:artists-snapshot`).
-Only artists that appear in one of those top lists get a row. A rarely played artist can therefore be
-missing here; its plays still count toward totals, discovery, and the heatmap, but add no genre
-weight.
+Artists also get rows from imported local tracks and from the genre backfill. A rarely played artist
+can still be missing here; its plays count toward totals, discovery, and the heatmap, but add no
+genre weight.
+
+Genres are resolved in this order:
+
+1. **Manual override** — saved from the artist detail page and never overwritten automatically.
+2. **MusicBrainz** — the Spotify artist URL is mapped to a MusicBrainz id (or a name search is used),
+   then community genres/tags are stored. A `404` means "no match", and `503` responses are retried.
+3. **Last.fm** — when MusicBrainz returns no genres and `LASTFM_API_KEY` is set, top tags are used,
+   with listener-only tags such as `seen live` filtered out.
+
+The backfill is available from the analytics page (`POST /genres/backfill`, queued) and from the
+`genres:backfill` command. It processes the user's most played artists first and respects
+`genres_overridden` even with `--force`.
 
 ### `tracks`
 
@@ -357,9 +430,27 @@ Track metadata snapshot used to name and illustrate the top tracks in a recap.
 | `duration_ms` | unsigned int, nullable | |
 | `created_at` / `updated_at` | timestamps | |
 
-Rows are upserted by `spotify_track_id` during every sync from the tracks returned by
-`/me/player/recently-played`. Titles and covers therefore only exist for tracks inside the 50-play
-sync window; the recap falls back to `Unknown track` and a placeholder for older plays.
+Rows are upserted by `spotify_track_id` during every sync and every history import. `TrackMetadataService`
+then fills missing covers, artist ids, and full durations for the most played imported tracks. Titles
+and covers therefore only exist for tracks inside the 50-play sync window or an uploaded export; the
+recap falls back to `Unknown track` and a placeholder for plays that were never enriched.
+
+### `history_imports`
+
+One row per uploaded Spotify data export.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | bigint | |
+| `user_id` | FK → `users` | Cascades on delete |
+| `status` | string(20) | `pending`, `running`, `completed`, or `failed` |
+| `original_name` | string | Uploaded filename |
+| `stored_path` | string | Path on the `local` disk |
+| `imported` / `skipped` | unsigned int | Play counters |
+| `files` / `tracks` | unsigned int | Files read and track rows created |
+| `error` | text, nullable | Failure message |
+| `started_at` / `finished_at` | timestamps, nullable | Job timing |
+| `created_at` / `updated_at` | timestamps | |
 
 ### Framework tables
 
@@ -374,8 +465,15 @@ stock Laravel migrations.
 | --- | --- | --- | --- | --- |
 | GET | `/` | — | web | Marketing page |
 | GET | `/dashboard` | `dashboard` | `auth`, `verified` | Live stats and connect prompt |
-| GET | `/analytics` | `analytics` | `auth`, `verified` | Stored-data analytics |
-| GET | `/recap` | `recap` | `auth`, `verified` | Wrapped-style recap with share controls |
+| GET | `/analytics` | `analytics` | `auth`, `verified` | Stored-data analytics, filters, and history import |
+| GET | `/recap` | `recap` | `auth`, `verified` | Wrapped-style recap with share controls and year comparison |
+| GET | `/albums/{album}` | `albums.show` | `auth`, `verified` | Album detail page |
+| GET | `/artists/{artistId}` | `artists.show` | `auth`, `verified` | Artist detail page and genre editor |
+| POST | `/artists/{artistId}/genres` | `artists.genres.update` | `auth`, `verified` | Save a manual genre override |
+| POST | `/import` | `import.store` | `auth`, `verified` | Queue a Spotify history export import |
+| GET | `/history/export` | `history.export` | `auth`, `verified` | Download all stored plays as CSV |
+| DELETE | `/history/imported` | `history.destroy-imported` | `auth`, `verified` | Delete imported plays only |
+| POST | `/genres/backfill` | `genres.backfill` | `auth`, `verified` | Queue a MusicBrainz/Last.fm genre backfill |
 | GET | `/now-playing` | `now-playing` | `auth`, `verified` | Compact current playback JSON for polling |
 | GET | `/playlists` | `playlists.index` | `auth`, `verified` | Playlist tools and forgotten favorites |
 | POST | `/playlists/top-tracks` | `playlists.top-tracks` | `auth`, `verified` | Create a playlist from top tracks |
@@ -392,6 +490,10 @@ stock Laravel migrations.
 `/analytics` and `/recap` accept an optional `?timezone=` IANA identifier, then the `timezone`
 cookie; an invalid value falls back to the application timezone. The `/u/{token}` routes are public
 and use the timezone stored when the link was created.
+
+`/analytics` also accepts `range` (`7d`, `30d`, `90d`, `1y`, `all`), `search`, and the additive
+`genre`, `artist` (artist id), and `context` filters. `/recap` accepts `year` and the optional
+`compare` year; comparison renders only when both years are valid and different.
 
 ---
 
@@ -440,10 +542,52 @@ Methods: `topTracks(User $user, string $range)`, `topArtists(User $user, string 
 - `sync(User $user): int` — persists new plays, backfills missing metadata, upserts `tracks`
   metadata, refreshes the artist snapshot, and returns the number of newly inserted rows.
 
+### `App\Services\HistoryImportService`
+
+- `import(User $user, UploadedFile $file, ?callable $onProgress = null): array` — imports a Spotify
+  JSON or ZIP export in chunks and returns `imported`, `skipped`, `files`, and `tracks`.
+- `summary(User $user): array` — imported play count, total plays, and last import timestamp.
+- `recent(User $user): array` — the latest `history_imports` rows for the progress list.
+- `assertReadable(UploadedFile $file): void` — validates the upload before it is queued.
+
+Constants: `MIN_PLAY_MS = 30_000` and `CONTEXT = 'json_import'`.
+
+### `App\Services\TrackMetadataService`
+
+- `enrich(User $user, int $limit = 200): int` — fills missing covers, artist ids, albums, and full
+  durations for the user's most played imported tracks. Uses batched `/v1/tracks` lookups first and
+  oEmbed as a fallback for up to 25 tracks.
+
+### `App\Services\ListeningDetailService`
+
+- `album(User $user, string $albumName, ?string $artistName = null): ?array` — album overview,
+  12-month timeline, and top tracks.
+- `artist(User $user, string $artistId): ?array` — artist overview, genres, monthly timeline, top
+  tracks, and top albums.
+
+### `App\Services\MusicBrainzGenreService`
+
+- `lookup(Artist $artist): array` — resolves `musicbrainz_id` (Spotify URL relation first, then an
+  exact-name search with a fallback to the top result) and returns up to five normalized genres. A
+  `404` is treated as no match; `503` responses are retried.
+
+### `App\Services\LastFmGenreService`
+
+- `lookup(Artist $artist): array` — returns up to five normalized `artist.gettoptags` tags, filtering
+  listener-only tags. Returns `[]` when `LASTFM_API_KEY` is empty or the request fails.
+
+### `App\Services\GenreBackfillService`
+
+- `backfill(User $user, int $limit = 50, bool $force = false): array` — processes the user's most
+  played artists, skips manually overridden artists, and falls back from MusicBrainz to Last.fm.
+  Returns `checked`, `updated`, and `failed` counters.
+
 ### `App\Services\ListeningAnalyticsService`
 
-- `forUser(User $user, ?string $timezone = null): array` — computes everything for the analytics page
-  from the database only.
+- `forUser(User $user, ?string $timezone = null, ?string $search = null, ?Carbon $from = null, ?Carbon $to = null, array $filters = []): array`
+  — computes everything for the analytics page from the database only. `$filters` accepts
+  `genre`, `artist_id`, and `context`, and every aggregate respects them.
+- `filterOptions(User $user): array` — genres, top artists, and contexts available for the filter bar.
 - `artistTrends(User $user, ?string $timezone = null): array` — twelve weekly buckets (Monday starts)
   and the play counts of the six most played artists, plus weekly rank movement for the top five.
 - `artistComparison(User $user): array` — totals and top artists, with their share of plays, for the
@@ -466,14 +610,45 @@ Returned shape:
     'top_genres' => [
         ['genre' => 'indie pop', 'plays' => 12],
     ],
+    'top_albums' => [
+        [
+            'album_name' => '…',
+            'artist_name' => '…',
+            'cover_url' => 'https://i.scdn.co/…',
+            'plays' => 9,
+            'minutes' => 30,
+            'unique_tracks_played' => 7,
+        ],
+    ],
     'heatmap' => [
         'counts' => [/* 7 rows (Mon–Sun) × 24 hours */],
         'max' => 13,
     ],
     'discovery' => ['new_artists' => 31, 'plays' => 50, 'rate' => 0.62],
     'streaks' => ['current' => 4, 'longest' => 4],
+    'completion' => [
+        'plays' => 120,
+        'completed' => 84,
+        'skipped' => 22,
+        'rate' => 0.7,
+        'skipped_tracks' => [
+            [
+                'spotify_track_id' => '…',
+                'name' => '…',
+                'artist_name' => '…',
+                'plays' => 6,
+                'skips' => 5,
+                'skip_rate' => 0.8333,
+            ],
+        ],
+    ],
+    'tracks_leaderboard' => [/* exact play counts per track */],
 ]
 ```
+
+`completion` only considers imported plays (`context = json_import`), because their `duration_ms` is
+the real listening time. A play counts as completed at ≥ 90% of the track duration and as a skip
+below 50%; `skipped_tracks` needs at least two plays.
 
 `artistTrends()` returns chart-ready data:
 
@@ -510,8 +685,9 @@ when the artist did not appear in the previous week.
 
 ### `App\Services\RecapService`
 
-- `forUser(User $user, ?string $timezone = null): array` — builds the recap from the stored plays and
-the `tracks` snapshot:
+- `availableYears(User $user): array` — the inclusive year range present in stored plays.
+- `forUser(User $user, ?string $timezone = null, ?int $year = null): array` — builds the recap from
+  the stored plays and the `tracks` snapshot, optionally limited to a single year:
 
 ```php
 [
@@ -564,15 +740,19 @@ Constants: `TOP_TRACKS = 30`, `FORGOTTEN_LIMIT = 30`, `FORGOTTEN_DAYS = 14`,
 ## Commands and schedule
 
 ```bash
-php artisan spotify:sync                # every connected account
-php artisan spotify:sync --user=1       # a single user id
-php artisan schedule:list               # show the registered schedule
-php artisan schedule:work               # run the scheduler in development
+php artisan spotify:sync                    # every connected account
+php artisan spotify:sync --user=1           # a single user id
+php artisan genres:backfill                 # MusicBrainz + Last.fm for every user
+php artisan genres:backfill --user=1 --limit=100 --force
+php artisan schedule:list                   # show the registered schedule
+php artisan schedule:work                   # run the scheduler in development
+php artisan queue:work                      # process imports and genre jobs
 ```
 
 | Command | Schedule | Notes |
 | --- | --- | --- |
 | `spotify:sync` | `*/15 * * * *` | `withoutOverlapping()`; failures are reported per account and the command exits non-zero if any account failed |
+| `genres:backfill` | — | `--user`, `--limit` (default 50), and `--force` rechecks already-synced artists; manual overrides are always kept |
 
 ---
 
@@ -589,6 +769,8 @@ Spotify.
 | Unique artists | `COUNT(DISTINCT artist_id)` — the **primary** artist of each play |
 | Average track length | `AVG(duration_ms)` across stored plays |
 | Top genres | Artist genres weighted by plays, top 8 |
+| Top albums | Plays grouped by album, top 12, tie-broken by listening time |
+| Filters | `genre`, `artist` (id), and `context` are applied to every aggregate on the page |
 | Heatmap | Plays per weekday (Mon–Sun) × hour of day, in the reported timezone |
 | Discovery rate | `unique artists ÷ total plays` — the share of plays that introduced a new artist |
 | Weekly trend | Plays per ISO week (Monday start) in the report timezone for the six most played artists over 12 weeks |
@@ -596,9 +778,14 @@ Spotify.
 | 4 weeks vs 1 year | Per-artist share of plays in the last 28 days and the last 365 days, plus window totals |
 | Current streak | Consecutive days with at least one play, ending today or yesterday |
 | Longest streak | Longest run of consecutive days with at least one play |
+| Completion rate | Imported plays whose duration is ≥ 90% of the track length, divided by all measurable imported plays |
+| Skip rate | Imported plays whose duration is < 50% of the track length |
+| Most skipped tracks | Imported tracks with at least two plays, ordered by skip count and skip rate |
 
-Listening time uses the full track duration reported by Spotify, so a skipped track still counts its
-full length. There is currently no partial-play data available from the API.
+Listening time uses `streams.duration_ms`. Synced plays record the full track duration, so a skipped
+track still counts its full length. Imported plays record the actual `ms_played`, which is why only
+those rows are used for completion and skip metrics. The range filter and the genre/artist/context
+filters apply before any metric is computed.
 
 ---
 
@@ -615,7 +802,9 @@ The recap is a single scrollable story built from the same stored plays as the a
 | Most active hour | Column totals of the weekday × hour heatmap |
 
 **Owner view (`/recap`).** Shows the story plus the download button and share controls. An empty
-history renders an empty state instead of zeroed sections.
+history renders an empty state instead of zeroed sections. A year selector limits the recap to one
+calendar year, and the optional **Compare** selector renders `RecapComparison.vue` with the selected
+year beside another year: plays, minutes, artists, tracks, top artist, album, track, and genre.
 
 **Image export.** `html-to-image`'s `toPng` renders the cover card at 2× pixel ratio and downloads
 `spotify-stats-recap.png`; no server call is involved. Failures are reported inline.
@@ -704,9 +893,14 @@ Coverage highlights:
 | --- | --- |
 | `tests/Feature/SpotifyCacheTest.php` | Per-user/per-range caching, stale fallback, error state, dashboard with stale data |
 | `tests/Feature/StreamSyncTest.php` | Play persistence, deduplication, invalid items, command sync, metadata backfill, dashboard sync throttling |
-| `tests/Feature/ListeningAnalyticsTest.php` | Overview totals, genre weighting, timezone heatmap, streaks, discovery, weekly trends and rank movement, window comparison, empty state, route props, timezone cookie, metadata capture |
-| `tests/Feature/RecapTest.php` | Recap data and empty state, share/revoke, public page and OG tags, PNG signature, track metadata snapshot |
+| `tests/Feature/ListeningAnalyticsTest.php` | Overview totals, genre weighting, genre/artist/context filters, completion and skip rates, timezone heatmap, streaks, discovery, weekly trends and rank movement, window comparison, empty state, route props, timezone cookie, metadata capture |
+| `tests/Feature/ListeningDetailTest.php` | Album and artist detail pages, timelines, not-found handling |
+| `tests/Feature/RecapTest.php` | Recap data and empty state, year selection and year-vs-year comparison, share/revoke, public page and OG tags, PNG signature, track metadata snapshot |
+| `tests/Feature/HistoryImportTest.php` | JSON/ZIP parsing, 30-second skip threshold, duplicate handling, local artists, queued imports, progress, metadata enrichment |
+| `tests/Feature/HistoryDataTest.php` | CSV history export and deleting imported plays only |
+| `tests/Feature/GenreBackfillTest.php` | MusicBrainz lookups and retries, exact-name preference, Last.fm fallback, manual overrides, override route and authorization |
 | `tests/Feature/PlaylistTest.php` | Scope request and storage, top-track and forgotten playlists, 100-URI batching, forgotten selection rules, page props, missing-scope guard, Spotify `403` |
+| `tests/Feature/ByokTest.php` | Custom Spotify app detection, encrypted secrets, authorization fallback, token clearing |
 | `tests/Feature/NowPlayingTest.php` | Polling payload shape, no playback, Spotify failure, disconnected user, authentication |
 | `tests/Feature/Auth/*`, `ProfileTest.php` | Standard auth and profile flows |
 
@@ -720,11 +914,14 @@ vendor/bin/pint --dirty --format agent
 
 ## Known limitations
 
-- **Top genres may be empty.** Spotify removed the `genres` field from artist objects and now returns
-  `403 Forbidden` for `GET /v1/artists` to apps created after 27 November 2024. `/me/top/artists` no
-  longer includes genres either. The genre aggregation is implemented and tested, and populates as
-  soon as genre data exists in `artists`, but there is currently no Spotify source for it.
-  Integrating Last.fm or MusicBrainz would fill it.
+- **Some artists still have no genres.** Spotify no longer returns genres, so the app uses MusicBrainz
+  with a Last.fm fallback and manual overrides. Artists missing from both databases stay untagged until
+  you edit them. Without `LASTFM_API_KEY`, only MusicBrainz and manual edits apply.
+- **Imports skip short plays.** Spotify history entries under 30 seconds are ignored, matching the
+  threshold used by the importer, so very brief skips never reach analytics.
+- **Completion metrics cover imports only.** Synced plays store the full track duration rather than the
+  time actually played, so they are excluded from completion and skip rates. Upload a history export
+  to populate those metrics.
 - **Only the last 50 plays are available.** `/me/player/recently-played` cannot be paginated, so a gap
   appears if more than 50 tracks are played between syncs. Running the scheduler every fifteen
   minutes keeps this unlikely.
@@ -739,8 +936,9 @@ vendor/bin/pint --dirty --format agent
   empty; it needs tracks with at least two plays that have gone two weeks without a listen.
 - **Artists are the primary artist.** Collaborations only credit `track.artists[0]` for unique-artist,
   discovery, and genre figures.
-- **The scheduler must be running.** Without `schedule:work` or the cron entry, history only grows when
-  the dashboard triggers a fallback sync.
+- **The scheduler and queue worker must be running.** Without `schedule:work` or the cron entry, history
+  only grows when the dashboard triggers a fallback sync; without `queue:work`, imports and genre
+  backfills stay queued.
 - **No data pruning.** `streams` grows forever; aggregate the table or add a retention window if the
   history becomes large.
 - **Recap images need GD.** The OG card uses GD with FreeType. Without the extension
@@ -759,27 +957,45 @@ vendor/bin/pint --dirty --format agent
 
 ```
 app/
-  Console/Commands/SyncSpotifyStreams.php   Artisan sync command
+  Console/Commands/
+    SyncSpotifyStreams.php                  spotify:sync
+    BackfillGenres.php                      genres:backfill
   Http/
-    Controllers/AnalyticsController.php     /analytics
-    Controllers/RecapController.php         /recap, share + revoke
+    Controllers/AnalyticsController.php     /analytics, range + filters + import summary
+    Controllers/RecapController.php         /recap, year + comparison, share + revoke
     Controllers/PublicRecapController.php   /u/{token}, OG image
-    Controllers/DashboardController.php     /dashboard, fallback sync
+    Controllers/DashboardController.php     /dashboard, fallback sync, merged genres
     Controllers/NowPlayingController.php    /now-playing polling payload
     Controllers/PlaylistController.php      /playlists, create actions
+    Controllers/ListeningDetailController.php  album and artist detail pages
+    Controllers/ArtistGenreController.php   manual genre overrides
+    Controllers/GenreController.php         queued genre backfill
+    Controllers/ImportController.php        queued history import
+    Controllers/HistoryDataController.php   CSV export and imported-play deletion
     Controllers/SpotifyController.php       OAuth redirect + callback
+    Controllers/SpotifyAppController.php    per-user Spotify app credentials
     Controllers/Concerns/ResolvesTimezone.php  Query/cookie timezone resolution
     Middleware/HandleInertiaRequests.php    Shared Inertia props (auth, flash)
+  Jobs/
+    ImportHistoryJob.php                    Background history import
+    BackfillGenresJob.php                   Background genre backfill
   Models/
-    Artist.php                              Artist snapshot + genre cast
+    Artist.php                              Artist snapshot, genres, override flag
+    HistoryImport.php                       Import status and counters
     Stream.php                              A single stored play
     Track.php                               Track metadata snapshot
     User.php                                Spotify tokens, streams, recap token
   Services/
-    ListeningAnalyticsService.php           All analytics aggregates
-    RecapService.php                        Recap story data
+    ListeningAnalyticsService.php           Analytics aggregates, filters, completion
+    ListeningDetailService.php              Album and artist detail data
+    RecapService.php                        Recap story and year data
     RecapImageService.php                   GD Open Graph card
     PlaylistService.php                     Top-track and forgotten-favorite playlists
+    HistoryImportService.php                Spotify export parser and importer
+    TrackMetadataService.php                Cover/artist/duration enrichment
+    MusicBrainzGenreService.php             Primary genre lookup
+    LastFmGenreService.php                  Genre fallback
+    GenreBackfillService.php                Backfill orchestration and overrides
     SpotifyCacheService.php                 TTL cache + stale fallback
     SpotifyService.php                      Spotify Web API client
     StreamSyncService.php                   Persist plays, backfill, track + artist snapshots
@@ -791,28 +1007,41 @@ database/migrations/
   ..._add_analytics_columns_to_streams_table.php
   ..._add_recap_to_users_table.php
   ..._add_spotify_scopes_to_users_table.php
+  ..._add_spotify_app_credentials_to_users_table.php
+  ..._create_history_imports_table.php
+  ..._add_musicbrainz_fields_to_artists_table.php
+  ..._add_genres_overridden_to_artists_table.php
 
 resources/js/
   app.js                                    Inertia boot + timezone cookie
   Layouts/AuthenticatedLayout.vue           Navigation (Dashboard, Analytics, Recap, Playlists, Profile)
   Components/Chart.vue                      Chart.js wrapper (line and bar)
+  Components/HistoryImport.vue              Upload, progress, delete controls
   Components/RecapStory.vue                 Recap sections, export, share controls
+  Components/RecapComparison.vue            Year-vs-year comparison
   chartTheme.js                             Shared chart palette, grid, and tooltip styling
   pages/Dashboard.vue                       Live Spotify stats
-  pages/Analytics.vue                       Stored-data analytics
+  pages/Analytics.vue                       Analytics, filters, completion, import panel
+  pages/AlbumDetail.vue                     Album play history
+  pages/ArtistDetail.vue                    Artist play history and genre editor
   pages/Recap.vue                           Owner and public recap shell
   pages/Playlists.vue                       Playlist tools and forgotten favorites
   pages/Welcome.vue                         Landing page
 
 routes/
-  web.php                                   Dashboard, analytics, recap, playlists, OAuth, profile
+  web.php                                   Dashboard, analytics, details, imports, genres, recap, playlists, OAuth, profile
   console.php                               spotify:sync schedule
 
 tests/Feature/
   SpotifyCacheTest.php
   StreamSyncTest.php
   ListeningAnalyticsTest.php
+  ListeningDetailTest.php
   RecapTest.php
+  HistoryImportTest.php
+  HistoryDataTest.php
+  GenreBackfillTest.php
   PlaylistTest.php
+  ByokTest.php
   NowPlayingTest.php
 ```
