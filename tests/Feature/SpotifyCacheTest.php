@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Artist;
 use App\Models\User;
 use App\Services\SpotifyCacheService;
 use Illuminate\Http\Client\RequestException;
@@ -120,6 +121,31 @@ it('derives ranked top albums from the cached top tracks', function () {
             ->where('topAlbums.0.track_count', 2)
             ->where('topAlbums.0.url', 'https://open.spotify.com/album/album-a')
             ->where('topAlbums.1.id', 'album-b'));
+});
+
+it('merges stored genres into dashboard top artists', function () {
+    Artist::query()->create([
+        'spotify_artist_id' => 'artist-a',
+        'name' => 'Artist A',
+        'genres' => ['hip hop', 'trap'],
+    ]);
+
+    Http::fake([
+        'api.spotify.com/v1/me/top/tracks*' => Http::response(['items' => []]),
+        'api.spotify.com/v1/me/top/artists*' => Http::response([
+            'items' => [['id' => 'artist-a', 'name' => 'Artist A', 'genres' => []]],
+        ]),
+        'api.spotify.com/v1/me/player/recently-played*' => Http::response(['items' => []]),
+        'api.spotify.com/v1/me/player/currently-playing*' => Http::response([], 204),
+    ]);
+
+    $this->actingAs($this->user)
+        ->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Dashboard')
+            ->where('topArtists.0.id', 'artist-a')
+            ->where('topArtists.0.genres', ['hip hop', 'trap']));
 });
 
 it('serves the dashboard with stale data when Spotify is unavailable', function () {

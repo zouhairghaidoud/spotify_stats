@@ -147,11 +147,11 @@ class StreamSyncService
     }
 
     /**
-     * Snapshot artist genres so analytics never hit the Spotify API on load.
+     * Snapshot artist names so analytics never hit the Spotify API on load.
      *
-     * Genres come from the top artists endpoint because the catalog artist
-     * endpoints return 403 for apps created after November 2024. The snapshot
-     * is refreshed once a day, which is plenty for genre data.
+     * Spotify no longer returns genres to new applications, so genres are
+     * owned by the MusicBrainz backfill. This snapshot never overwrites them,
+     * otherwise a routine sync would erase every stored genre.
      */
     private function snapshotArtists(User $user): void
     {
@@ -196,7 +196,7 @@ class StreamSyncService
                 ];
             }
 
-            Artist::query()->upsert($rows, ['spotify_artist_id'], ['name', 'genres', 'updated_at']);
+            Artist::query()->upsert($rows, ['spotify_artist_id'], ['name', 'updated_at']);
 
             Cache::put($cacheKey, true, now()->addDay());
         } catch (Throwable $exception) {

@@ -57,10 +57,25 @@ class MusicBrainzGenreService
         }
 
         $data = $this->lookupData(
-            'artist?query='.rawurlencode('artist:"'.$artist->name.'"').'&limit=1&fmt=json',
+            'artist?query='.rawurlencode('artist:"'.$artist->name.'"').'&limit=5&fmt=json',
         );
 
-        $id = $data['artists'][0]['id'] ?? null;
+        $candidates = array_values(array_filter(
+            (array) ($data['artists'] ?? []),
+            fn (mixed $candidate): bool => is_array($candidate) && filled($candidate['id'] ?? null),
+        ));
+
+        $wanted = mb_strtolower(trim($artist->name));
+
+        foreach ($candidates as $candidate) {
+            $name = is_string($candidate['name'] ?? null) ? mb_strtolower(trim($candidate['name'])) : null;
+
+            if ($name === $wanted) {
+                return (string) $candidate['id'];
+            }
+        }
+
+        $id = $candidates[0]['id'] ?? null;
 
         return is_string($id) && $id !== '' ? $id : null;
     }

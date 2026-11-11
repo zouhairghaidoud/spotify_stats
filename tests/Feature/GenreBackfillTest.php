@@ -110,6 +110,30 @@ it('treats a missing musicbrainz url as not found and falls back to search', fun
         ->and($artist->refresh()->genres)->toBe(['synthpop']);
 });
 
+it('prefers an exact artist name match over an unrelated search hit', function () {
+    Http::fake([
+        'musicbrainz.org/ws/2/url*' => Http::response(['error' => 'Not Found'], 404),
+        'musicbrainz.org/ws/2/artist?*' => Http::response([
+            'artists' => [
+                ['id' => 'wrong-mbid', 'name' => 'DJ Madd'],
+                ['id' => 'right-mbid', 'name' => 'Madd'],
+            ],
+        ]),
+        'musicbrainz.org/ws/2/artist/right-mbid*' => Http::response([
+            'genres' => [['name' => 'Moroccan Rap', 'count' => 4]],
+        ]),
+    ]);
+
+    $user = User::factory()->create();
+    $artist = genreArtist('spotify-artist-6', 'Madd');
+    genrePlay($user, 'spotify-artist-6');
+
+    app(GenreBackfillService::class)->backfill($user);
+
+    expect($artist->refresh()->genres)->toBe(['moroccan rap'])
+        ->and($artist->musicbrainz_id)->toBe('right-mbid');
+});
+
 it('retries a busy musicbrainz response before failing', function () {
     Http::fake([
         'musicbrainz.org/ws/2/url*' => Http::sequence()

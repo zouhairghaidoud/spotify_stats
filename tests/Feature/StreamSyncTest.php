@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Artist;
 use App\Models\Stream;
 use App\Models\User;
 use App\Services\StreamSyncService;
@@ -104,6 +105,28 @@ it('backfills duration and artist for plays stored before analytics columns exis
 
     expect($stream->duration_ms)->toBe(198000)
         ->and($stream->artist_id)->toBe('artist-a');
+});
+
+it('keeps stored genres when spotify returns an empty genre list', function () {
+    $user = User::factory()->connectedToSpotify()->create();
+
+    Artist::query()->create([
+        'spotify_artist_id' => 'artist-a',
+        'name' => 'Artist A',
+        'genres' => ['hip hop'],
+    ]);
+
+    Http::fake([
+        'api.spotify.com/v1/me/player/recently-played*' => Http::response(['items' => []]),
+        'api.spotify.com/v1/me/top/artists*' => Http::response([
+            'items' => [['id' => 'artist-a', 'name' => 'Artist A', 'genres' => []]],
+        ]),
+    ]);
+
+    app(StreamSyncService::class)->sync($user);
+
+    expect(Artist::query()->where('spotify_artist_id', 'artist-a')->sole()->genres)
+        ->toBe(['hip hop']);
 });
 
 it('throttles the dashboard fallback sync instead of hitting Spotify on every page load', function () {

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ProvidesSpotifyApp;
+use App\Models\Artist;
 use App\Models\User;
 use App\Services\HistoryImportService;
 use App\Services\SpotifyCacheService;
@@ -91,8 +92,50 @@ class DashboardController extends Controller
         }
 
         $data['topAlbums'] = $this->topAlbums($data['topTracks']);
+        $data['topArtists'] = $this->withLocalGenres($data['topArtists']);
 
         return Inertia::render('Dashboard', $data);
+    }
+
+    /**
+     * Fill artist genres from stored MusicBrainz data.
+     *
+     * Spotify no longer returns genres to new applications, so the live top
+     * artists payload is usually empty. Prefer the local snapshot whenever it
+     * has genres, and keep Spotify's value as a fallback.
+     *
+     * @param  array<int, array<string, mixed>>  $artists
+     * @return array<int, array<string, mixed>>
+     */
+    private function withLocalGenres(array $artists): array
+    {
+        $ids = collect($artists)
+            ->pluck('id')
+            ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return $artists;
+        }
+
+        $localGenres = Artist::query()
+            ->whereIn('spotify_artist_id', $ids)
+            ->get(['spotify_artist_id', 'genres'])
+            ->mapWithKeys(fn (Artist $artist): array => [
+                (string) $artist->spotify_artist_id => array_values($artist->genres ?? []),
+            ]);
+
+        return array_map(function (array $artist) use ($localGenres): array {
+            $id = is_string($artist['id'] ?? null) ? $artist['id'] : null;
+            $genres = $id !== null ? $localGenres->get($id, []) : [];
+
+            if ($genres !== []) {
+                $artist['genres'] = $genres;
+            }
+
+            return $artist;
+        }, $artists);
     }
 
     /**
