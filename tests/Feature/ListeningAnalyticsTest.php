@@ -28,6 +28,7 @@ function storePlay(
     string $playedAt,
     ?int $durationMs = 180000,
     ?string $artistId = null,
+    ?string $context = null,
 ): Stream {
     return Stream::query()->create([
         'user_id' => $user->id,
@@ -35,6 +36,7 @@ function storePlay(
         'duration_ms' => $durationMs,
         'artist_id' => $artistId,
         'played_at' => $playedAt,
+        'context' => $context,
     ]);
 }
 
@@ -100,6 +102,46 @@ it('fills a missing track artist name from the stream artist', function () {
 
     expect($row['artist_name'])->toBe('Known Artist')
         ->and($row['artist_id'])->toBe('artist-known');
+});
+
+it('filters analytics by genre, artist, and playback context', function () {
+    $user = User::factory()->create();
+
+    artistWithGenres('artist-1', 'Trap Artist', ['trap', 'hip hop']);
+    artistWithGenres('artist-2', 'Jazz Artist', ['jazz']);
+
+    storePlay($user, 'track-a', '2026-11-01 10:00:00', 180000, 'artist-1', 'playlist');
+    storePlay($user, 'track-b', '2026-11-01 11:00:00', 180000, 'artist-2', 'album');
+    storePlay($user, 'track-c', '2026-11-01 12:00:00', 180000, 'artist-1', 'album');
+
+    $service = app(ListeningAnalyticsService::class);
+
+    $byGenre = $service->forUser($user, 'UTC', null, null, null, ['genre' => 'trap']);
+    $byArtist = $service->forUser($user, 'UTC', null, null, null, ['artist_id' => 'artist-2']);
+    $byContext = $service->forUser($user, 'UTC', null, null, null, ['context' => 'playlist']);
+
+    expect($byGenre['overview']['plays'])->toBe(2)
+        ->and($byGenre['overview']['unique_artists'])->toBe(1)
+        ->and($byArtist['overview']['plays'])->toBe(1)
+        ->and($byArtist['tracks_leaderboard'][0]['spotify_track_id'])->toBe('track-b')
+        ->and($byContext['overview']['plays'])->toBe(1)
+        ->and($byContext['tracks_leaderboard'][0]['spotify_track_id'])->toBe('track-a');
+});
+
+it('lists genres, artists, and contexts for the analytics filters', function () {
+    $user = User::factory()->create();
+
+    artistWithGenres('artist-1', 'Trap Artist', ['trap', 'hip hop']);
+    artistWithGenres('artist-2', 'Jazz Artist', ['jazz']);
+
+    storePlay($user, 'track-a', '2026-11-01 10:00:00', 180000, 'artist-1', 'playlist');
+    storePlay($user, 'track-b', '2026-11-01 11:00:00', 180000, 'artist-2', 'album');
+
+    $options = app(ListeningAnalyticsService::class)->filterOptions($user);
+
+    expect($options['genres'])->toBe(['hip hop', 'jazz', 'trap'])
+        ->and(array_column($options['artists'], 'artist_id'))->toEqualCanonicalizing(['artist-1', 'artist-2'])
+        ->and($options['contexts'])->toBe(['album', 'playlist']);
 });
 
 it('weights genres by how often each artist was played', function () {
@@ -327,6 +369,76 @@ it('compares the last four weeks with the last year', function () {
         ->and($comparison['year']['top_artists'][1]['share'])->toBe(0.25);
 });
 
+it('computes completion and skip rates from imported plays only', function () {
+    $user = User::factory()->create();
+
+    foreach ([
+        ['track-a', 'Track A', 'Artist A', 200000],
+        ['track-b', 'Track B', 'Artist B', 100000],
+        ['track-c', 'Track C', 'Artist C', 100000],
+    ] as [$id, $name, $artistName, $duration]) {
+        Track::query()->create([
+            'spotify_track_id' => $id,
+            'name' => $name,
+            'artist_name' => $artistName,
+            'duration_ms' => $duration,
+        ]);
+    }
+
+    // Track A: two completed plays, one skip.
+    storePlay($user, 'track-a', '2026-11-01 10:00:00', 190000, null, 'json_import');
+    storePlay($user, 'track-a', '2026-11-01 10:05:00', 200000, null, 'json_import');
+    storePlay($user, 'track-a', '2026-11-01 10:10:00', 40000, null, 'json_import');
+
+    // Track B: two skips, both counted for the most skipped list.
+    storePlay($user, 'track-b', '2026-11-01 11:00:00', 30000, null, 'json_import');
+    storePlay($user, 'track-b', '2026-11-01 11:05:00', 20000, null, 'json_import');
+
+    // Track C: exactly half is not a skip, 95% is a completion.
+    storePlay($user, 'track-c', '2026-11-01 12:00:00', 50000, null, 'json_import');
+    storePlay($user, 'track-c', '2026-11-01 12:05:00', 95000, null, 'json_import');
+
+    // Synced plays store the full duration and must be ignored.
+    storePlay($user, 'track-a', '2026-11-02 10:00:00', 200000, null, 'playlist');
+
+    $completion = app(ListeningAnalyticsService::class)->forUser($user, 'UTC')['completion'];
+
+    expect($completion['plays'])->toBe(7)
+        ->and($completion['completed'])->toBe(3)
+        ->and($completion['skipped'])->toBe(3)
+        ->and($completion['rate'])->toBe(round(3 / 7, 4))
+        ->and($completion['skipped_tracks'])->toHaveCount(2)
+        ->and($completion['skipped_tracks'][0])->toMatchArray([
+            'spotify_track_id' => 'track-b',
+            'name' => 'Track B',
+            'artist_name' => 'Artist B',
+            'plays' => 2,
+            'skips' => 2,
+            'skip_rate' => 1.0,
+        ])
+        ->and($completion['skipped_tracks'][1])->toMatchArray([
+            'spotify_track_id' => 'track-a',
+            'plays' => 3,
+            'skips' => 1,
+        ]);
+});
+
+it('reports an empty completion state without imported plays', function () {
+    $user = User::factory()->create();
+
+    storePlay($user, 'track-a', '2026-11-01 10:00:00', 200000, null, 'playlist');
+
+    $completion = app(ListeningAnalyticsService::class)->forUser($user, 'UTC')['completion'];
+
+    expect($completion)->toBe([
+        'plays' => 0,
+        'skipped' => 0,
+        'completed' => 0,
+        'rate' => 0.0,
+        'skipped_tracks' => [],
+    ]);
+});
+
 it('renders the analytics page from stored plays', function () {
     $user = User::factory()->connectedToSpotify()->create();
 
@@ -343,6 +455,8 @@ it('renders the analytics page from stored plays', function () {
             ->where('top_genres.0.genre', 'indie pop')
             ->has('heatmap.counts', 7)
             ->where('streaks.longest', 1)
+            ->where('completion.plays', 0)
+            ->has('completion.skipped_tracks', 0)
             ->has('trends.weeks', 12)
             ->where('trends.series.0.name', 'A')
             ->where('comparison.recent.plays', 1)
@@ -374,6 +488,28 @@ it('applies the selected range to the analytics page', function () {
             ->where('overview.plays', 2));
 
     Carbon::setTestNow();
+});
+
+it('applies genre, artist, and context filters to the analytics page', function () {
+    $user = User::factory()->create();
+
+    artistWithGenres('artist-1', 'Trap Artist', ['trap']);
+    artistWithGenres('artist-2', 'Jazz Artist', ['jazz']);
+
+    storePlay($user, 'track-a', '2026-11-01 10:00:00', 180000, 'artist-1', 'playlist');
+    storePlay($user, 'track-b', '2026-11-01 11:00:00', 180000, 'artist-2', 'album');
+
+    $this->actingAs($user)
+        ->get('/analytics?genre=trap&artist=artist-1&context=playlist')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Analytics')
+            ->where('filters.genre', 'trap')
+            ->where('filters.artist', 'artist-1')
+            ->where('filters.context', 'playlist')
+            ->where('overview.plays', 1)
+            ->where('filterOptions.genres', ['jazz', 'trap'])
+            ->where('filterOptions.contexts', ['album', 'playlist']));
 });
 
 it('uses the timezone cookie written by the browser', function () {

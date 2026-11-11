@@ -35,6 +35,21 @@ class ListeningAnalyticsService
     private const TOP_ALBUM_LIMIT = 12;
 
     /**
+     * Share of the full track duration that counts as a completed play.
+     */
+    private const COMPLETION_RATIO = 0.9;
+
+    /**
+     * Share of the full track duration below which a play counts as a skip.
+     */
+    private const SKIP_RATIO = 0.5;
+
+    private const SKIPPED_TRACK_LIMIT = 8;
+
+    private const SKIPPED_TRACK_MIN_PLAYS = 2;
+
+    /**
+     * @param  array{genre?: string|null, artist_id?: string|null, context?: string|null}  $filters
      * @return array{
      *     timezone: string,
      *     overview: array{
@@ -51,6 +66,7 @@ class ListeningAnalyticsService
      *     heatmap: array{counts: array<int, array<int, int>>, max: int},
      *     discovery: array{new_artists: int, plays: int, rate: float},
      *     streaks: array{current: int, longest: int},
+     *     completion: array{plays: int, skipped: int, completed: int, rate: float, skipped_tracks: array<int, array{spotify_track_id: string, name: string, artist_name: string|null, plays: int, skips: int, skip_rate: float}>},
      *     tracks_leaderboard: array<int, array{spotify_track_id: string, name: string, artist_id: string|null, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
      * }
      */
@@ -60,10 +76,12 @@ class ListeningAnalyticsService
         ?string $search = null,
         ?Carbon $from = null,
         ?Carbon $to = null,
+        array $filters = [],
     ): array {
         $timezone = $this->timezone($timezone);
+        $genreArtistIds = $this->genreArtistIds($filters['genre'] ?? null);
 
-        $totals = $this->windowed($user->streams(), $from, $to)
+        $totals = $this->scopeFilters($this->windowed($user->streams(), $from, $to), $filters, $genreArtistIds)
             ->selectRaw('COUNT(*) as plays')
             ->selectRaw('COALESCE(SUM(duration_ms), 0) as duration_ms')
             ->selectRaw('AVG(duration_ms) as average_duration_ms')
@@ -77,7 +95,7 @@ class ListeningAnalyticsService
         $durationMs = (int) ($totals->duration_ms ?? 0);
         $averageDurationMs = $totals->average_duration_ms ?? null;
 
-        [$heatmap, $days] = $this->heatmapAndDays($user, $timezone, $from, $to);
+        [$heatmap, $days] = $this->heatmapAndDays($user, $timezone, $from, $to, $filters, $genreArtistIds);
 
         return [
             'timezone' => $timezone,
@@ -89,18 +107,124 @@ class ListeningAnalyticsService
                 'average_track_seconds' => $averageDurationMs === null
                     ? null
                     : (int) round((float) $averageDurationMs / 1000),
-                'first_played_at' => $this->timestamp($this->windowed($user->streams(), $from, $to)->min('played_at')),
-                'last_played_at' => $this->timestamp($this->windowed($user->streams(), $from, $to)->max('played_at')),
+                'first_played_at' => $this->timestamp($this->scopeFilters($this->windowed($user->streams(), $from, $to), $filters, $genreArtistIds)->min('played_at')),
+                'last_played_at' => $this->timestamp($this->scopeFilters($this->windowed($user->streams(), $from, $to), $filters, $genreArtistIds)->max('played_at')),
             ],
-            'top_genres' => $this->topGenres($user, $from, $to),
-            'top_albums' => $this->topAlbums($user, $from, $to),
+            'top_genres' => $this->topGenres($user, $from, $to, $filters, $genreArtistIds),
+            'top_albums' => $this->topAlbums($user, $from, $to, $filters, $genreArtistIds),
             'heatmap' => [
                 'counts' => $heatmap,
                 'max' => $this->heatmapMax($heatmap),
             ],
-            'discovery' => $this->discovery($user, $from, $to),
+            'discovery' => $this->discovery($user, $from, $to, $filters, $genreArtistIds),
             'streaks' => $this->streaks($days, $timezone),
-            'tracks_leaderboard' => $this->tracksLeaderboard($user, $search, $from, $to),
+            'completion' => $this->completion($user, $from, $to, $filters, $genreArtistIds),
+            'tracks_leaderboard' => $this->tracksLeaderboard($user, $search, $from, $to, $filters, $genreArtistIds),
+        ];
+    }
+
+    /**
+     * Apply the genre/artist/context filters to a stream query.
+     *
+     * @template TQuery of \Illuminate\Database\Eloquent\Builder<Stream>
+     *
+     * @param  TQuery  $query
+     * @param  array{genre?: string|null, artist_id?: string|null, context?: string|null}  $filters
+     * @param  array<int, string>|null  $genreArtistIds
+     * @return TQuery
+     */
+    private function scopeFilters($query, array $filters, ?array $genreArtistIds)
+    {
+        return $query
+            ->when($genreArtistIds !== null, fn ($query) => $query->whereIn('streams.artist_id', $genreArtistIds === [] ? ['__no_genre__'] : $genreArtistIds))
+            ->when(filled($filters['artist_id'] ?? null), fn ($query) => $query->where('streams.artist_id', $filters['artist_id']))
+            ->when(filled($filters['context'] ?? null), fn ($query) => $query->where('streams.context', $filters['context']));
+    }
+
+    /**
+     * Resolve the artist ids that carry a genre, or null when no genre filter is active.
+     *
+     * @return array<int, string>|null
+     */
+    private function genreArtistIds(?string $genre): ?array
+    {
+        if ($genre === null || trim($genre) === '') {
+            return null;
+        }
+
+        $wanted = mb_strtolower(trim($genre));
+
+        return Artist::query()
+            ->whereNotNull('genres')
+            ->get(['spotify_artist_id', 'genres'])
+            ->filter(fn (Artist $artist): bool => in_array($wanted, array_map('mb_strtolower', $artist->genres ?? []), true))
+            ->pluck('spotify_artist_id')
+            ->map(fn (mixed $id): string => (string) $id)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Options available for the analytics filters.
+     *
+     * @return array{
+     *     genres: array<int, string>,
+     *     artists: array<int, array{artist_id: string, name: string, plays: int}>,
+     *     contexts: array<int, string>
+     * }
+     */
+    public function filterOptions(User $user): array
+    {
+        $artistRows = $user->streams()
+            ->whereNotNull('artist_id')
+            ->selectRaw('artist_id, COUNT(*) as plays')
+            ->groupBy('artist_id')
+            ->orderByDesc('plays')
+            ->toBase()
+            ->get();
+
+        $artists = Artist::query()
+            ->whereIn('spotify_artist_id', $artistRows->pluck('artist_id')->all())
+            ->get(['spotify_artist_id', 'name', 'genres'])
+            ->keyBy('spotify_artist_id');
+
+        $genres = [];
+
+        foreach ($artists as $artist) {
+            foreach ($artist->genres ?? [] as $genre) {
+                if (is_string($genre) && $genre !== '') {
+                    $genres[$genre] = true;
+                }
+            }
+        }
+
+        $genreList = array_keys($genres);
+        sort($genreList);
+
+        $artistList = $artistRows
+            ->take(80)
+            ->map(fn (object $row): array => [
+                'artist_id' => (string) $row->artist_id,
+                'name' => $artists->get($row->artist_id)?->name ?? 'Unknown artist',
+                'plays' => (int) $row->plays,
+            ])
+            ->values()
+            ->all();
+
+        $contexts = $user->streams()
+            ->whereNotNull('context')
+            ->where('context', '!=', '')
+            ->distinct()
+            ->orderBy('context')
+            ->pluck('context')
+            ->map(fn (mixed $context): string => (string) $context)
+            ->values()
+            ->all();
+
+        return [
+            'genres' => $genreList,
+            'artists' => $artistList,
+            'contexts' => $contexts,
         ];
     }
 
@@ -124,9 +248,9 @@ class ListeningAnalyticsService
      *
      * @return array<int, array{spotify_track_id: string, name: string, artist_id: string|null, artist_name: string|null, album_image_url: string|null, plays: int, minutes: int}>
      */
-    private function tracksLeaderboard(User $user, ?string $search, ?Carbon $from = null, ?Carbon $to = null): array
+    private function tracksLeaderboard(User $user, ?string $search, ?Carbon $from = null, ?Carbon $to = null, array $filters = [], ?array $genreArtistIds = null): array
     {
-        $query = $this->windowed($user->streams(), $from, $to)
+        $query = $this->scopeFilters($this->windowed($user->streams(), $from, $to), $filters, $genreArtistIds)
             ->leftJoin('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
             ->leftJoin('artists', 'artists.spotify_artist_id', '=', 'streams.artist_id')
             ->selectRaw('streams.spotify_track_id as spotify_track_id')
@@ -171,9 +295,9 @@ class ListeningAnalyticsService
      *
      * @return array<int, array{album_name: string, artist_name: string|null, cover_url: string|null, plays: int, minutes: int, unique_tracks_played: int}>
      */
-    private function topAlbums(User $user, ?Carbon $from = null, ?Carbon $to = null): array
+    private function topAlbums(User $user, ?Carbon $from = null, ?Carbon $to = null, array $filters = [], ?array $genreArtistIds = null): array
     {
-        return $this->windowed($user->streams(), $from, $to)
+        return $this->scopeFilters($this->windowed($user->streams(), $from, $to), $filters, $genreArtistIds)
             ->join('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
             ->leftJoin('artists', 'artists.spotify_artist_id', '=', 'tracks.artist_id')
             ->whereNotNull('tracks.album_name')
@@ -210,18 +334,17 @@ class ListeningAnalyticsService
      *
      * @return array{new_artists: int, plays: int, rate: float}
      */
-    private function discovery(User $user, ?Carbon $from = null, ?Carbon $to = null): array
+    private function discovery(User $user, ?Carbon $from = null, ?Carbon $to = null, array $filters = [], ?array $genreArtistIds = null): array
     {
         $windowStart = $from ?? now()->subDays(self::DISCOVERY_DAYS);
 
-        $plays = (int) $this->windowed($user->streams(), $windowStart, $to)->count();
+        $plays = (int) $this->scopeFilters($this->windowed($user->streams(), $windowStart, $to), $filters, $genreArtistIds)->count();
 
-        $newArtists = $user->streams()
-            ->whereNotNull('artist_id')
-            ->selectRaw('artist_id, MIN(played_at) as first_played')
-            ->groupBy('artist_id')
-            ->havingRaw('MIN(played_at) >= ?', [$windowStart->copy()->utc()->format('Y-m-d H:i:s')])
-            ->when($to !== null, fn ($query) => $query->havingRaw('MIN(played_at) < ?', [$to->copy()->utc()->format('Y-m-d H:i:s')]))
+        $newArtists = $this->scopeFilters($user->streams()->whereNotNull('streams.artist_id'), $filters, $genreArtistIds)
+            ->selectRaw('streams.artist_id, MIN(streams.played_at) as first_played')
+            ->groupBy('streams.artist_id')
+            ->havingRaw('MIN(streams.played_at) >= ?', [$windowStart->copy()->utc()->format('Y-m-d H:i:s')])
+            ->when($to !== null, fn ($query) => $query->havingRaw('MIN(streams.played_at) < ?', [$to->copy()->utc()->format('Y-m-d H:i:s')]))
             ->toBase()
             ->get()
             ->count();
@@ -230,6 +353,71 @@ class ListeningAnalyticsService
             'new_artists' => $newArtists,
             'plays' => $plays,
             'rate' => $plays > 0 ? round($newArtists / $plays, 4) : 0.0,
+        ];
+    }
+
+    /**
+     * Completion and skip rate for imported plays.
+     *
+     * Only plays imported from the streaming history are considered because
+     * their duration_ms stores the seconds actually played. Synced plays store
+     * the full track duration, so they can never be measured for completion.
+     *
+     * @return array{plays: int, skipped: int, completed: int, rate: float, skipped_tracks: array<int, array{spotify_track_id: string, name: string, artist_name: string|null, plays: int, skips: int, skip_rate: float}>}
+     */
+    private function completion(User $user, ?Carbon $from = null, ?Carbon $to = null, array $filters = [], ?array $genreArtistIds = null): array
+    {
+        $completed = (int) round(self::COMPLETION_RATIO * 10);
+        $skipDivisor = (int) round(1 / self::SKIP_RATIO);
+
+        $evaluable = fn () => $this->scopeFilters($this->windowed($user->streams(), $from, $to), $filters, $genreArtistIds)
+            ->where('streams.context', HistoryImportService::CONTEXT)
+            ->join('tracks', 'tracks.spotify_track_id', '=', 'streams.spotify_track_id')
+            ->whereNotNull('tracks.duration_ms')
+            ->where('tracks.duration_ms', '>', 0);
+
+        $totals = $evaluable()
+            ->selectRaw('COUNT(*) as plays')
+            ->selectRaw("SUM(CASE WHEN streams.duration_ms * 10 >= tracks.duration_ms * {$completed} THEN 1 ELSE 0 END) as completed")
+            ->selectRaw("SUM(CASE WHEN streams.duration_ms * {$skipDivisor} < tracks.duration_ms THEN 1 ELSE 0 END) as skipped")
+            ->toBase()
+            ->first();
+
+        $plays = (int) ($totals->plays ?? 0);
+        $completedPlays = (int) ($totals->completed ?? 0);
+        $skippedPlays = (int) ($totals->skipped ?? 0);
+
+        $skippedTracks = $evaluable()
+            ->leftJoin('artists', 'artists.spotify_artist_id', '=', 'streams.artist_id')
+            ->selectRaw('streams.spotify_track_id as spotify_track_id')
+            ->selectRaw("COALESCE(MAX(tracks.name), 'Unknown track') as name")
+            ->selectRaw('MAX(COALESCE(tracks.artist_name, artists.name)) as artist_name')
+            ->selectRaw('COUNT(*) as plays')
+            ->selectRaw("SUM(CASE WHEN streams.duration_ms * {$skipDivisor} < tracks.duration_ms THEN 1 ELSE 0 END) as skips")
+            ->groupBy('streams.spotify_track_id')
+            ->havingRaw('COUNT(*) >= ?', [self::SKIPPED_TRACK_MIN_PLAYS])
+            ->havingRaw("SUM(CASE WHEN streams.duration_ms * {$skipDivisor} < tracks.duration_ms THEN 1 ELSE 0 END) > 0")
+            ->orderByDesc('skips')
+            ->orderBy('streams.spotify_track_id')
+            ->limit(self::SKIPPED_TRACK_LIMIT)
+            ->toBase()
+            ->get()
+            ->map(fn (object $row): array => [
+                'spotify_track_id' => (string) $row->spotify_track_id,
+                'name' => (string) $row->name,
+                'artist_name' => filled($row->artist_name) ? (string) $row->artist_name : null,
+                'plays' => (int) $row->plays,
+                'skips' => (int) $row->skips,
+                'skip_rate' => round((int) $row->skips / max(1, (int) $row->plays), 4),
+            ])
+            ->all();
+
+        return [
+            'plays' => $plays,
+            'skipped' => $skippedPlays,
+            'completed' => $completedPlays,
+            'rate' => $plays > 0 ? round($completedPlays / $plays, 4) : 0.0,
+            'skipped_tracks' => $skippedTracks,
         ];
     }
 
@@ -451,12 +639,12 @@ class ListeningAnalyticsService
      *
      * @return array{0: array<int, array<int, int>>, 1: array<string, true>}
      */
-    private function heatmapAndDays(User $user, string $timezone, ?Carbon $from = null, ?Carbon $to = null): array
+    private function heatmapAndDays(User $user, string $timezone, ?Carbon $from = null, ?Carbon $to = null, array $filters = [], ?array $genreArtistIds = null): array
     {
         $heatmap = array_fill(0, 7, array_fill(0, 24, 0));
         $days = [];
 
-        $this->windowed($user->streams(), $from, $to)
+        $this->scopeFilters($this->windowed($user->streams(), $from, $to), $filters, $genreArtistIds)
             ->orderBy('played_at')
             ->select(['played_at'])
             ->cursor()
@@ -475,12 +663,12 @@ class ListeningAnalyticsService
      *
      * @return array<int, array{genre: string, plays: int}>
      */
-    private function topGenres(User $user, ?Carbon $from = null, ?Carbon $to = null): array
+    private function topGenres(User $user, ?Carbon $from = null, ?Carbon $to = null, array $filters = [], ?array $genreArtistIds = null): array
     {
-        $artistPlays = $this->windowed($user->streams(), $from, $to)
-            ->whereNotNull('artist_id')
-            ->selectRaw('artist_id, COUNT(*) as plays')
-            ->groupBy('artist_id')
+        $artistPlays = $this->scopeFilters($this->windowed($user->streams(), $from, $to), $filters, $genreArtistIds)
+            ->whereNotNull('streams.artist_id')
+            ->selectRaw('streams.artist_id as artist_id, COUNT(*) as plays')
+            ->groupBy('streams.artist_id')
             ->toBase()
             ->get()
             ->pluck('plays', 'artist_id');

@@ -44,6 +44,12 @@ return [
         'retry_sleep_seconds' => (int) env('MUSICBRAINZ_RETRY_SLEEP_SECONDS', 2),
     ],
 
+    'lastfm' => [
+        'base_url' => env('LASTFM_BASE_URL', 'https://ws.audioscrobbler.com/2.0'),
+        'api_key' => env('LASTFM_API_KEY'),
+        'tag_limit' => (int) env('LASTFM_TAG_LIMIT', 5),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

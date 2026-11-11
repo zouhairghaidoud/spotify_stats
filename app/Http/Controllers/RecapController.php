@@ -26,11 +26,21 @@ class RecapController extends Controller
         $year = $request->query('year');
         $year = is_numeric($year) && in_array((int) $year, $years, true) ? (int) $year : null;
 
+        $compare = $request->query('compare');
+        $compare = is_numeric($compare)
+            && $year !== null
+            && in_array((int) $compare, $years, true)
+            && (int) $compare !== $year
+                ? (int) $compare
+                : null;
+
         return Inertia::render('Recap', [
             'shared' => false,
             'recap' => $recap->forUser($user, $timezone, $year),
             'year' => $year,
             'years' => $years,
+            'compareYear' => $compare,
+            'comparison' => $compare === null ? null : $recap->forUser($user, $timezone, $compare),
             'publicUrl' => filled($token) ? route('recap.public', $token) : null,
             'imageUrl' => filled($token) ? route('recap.image', $token) : null,
         ]);

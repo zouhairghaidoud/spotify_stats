@@ -15,10 +15,11 @@ use Illuminate\Support\Carbon;
  * @property array<int, string>|null $genres
  * @property string|null $musicbrainz_id
  * @property Carbon|null $genres_synced_at
+ * @property bool $genres_overridden
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['spotify_artist_id', 'name', 'genres', 'musicbrainz_id', 'genres_synced_at'])]
+#[Fillable(['spotify_artist_id', 'name', 'genres', 'musicbrainz_id', 'genres_synced_at', 'genres_overridden'])]
 class Artist extends Model
 {
     /**
@@ -31,6 +32,7 @@ class Artist extends Model
         return [
             'genres' => 'array',
             'genres_synced_at' => 'datetime',
+            'genres_overridden' => 'boolean',
         ];
     }
 }

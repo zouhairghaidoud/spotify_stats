@@ -7,11 +7,17 @@ use App\Models\User;
 use Throwable;
 
 /**
- * Backfills missing artist genres from MusicBrainz, most played first.
+ * Backfills missing artist genres from MusicBrainz, with a Last.fm fallback,
+ * most played first.
+ *
+ * Artists whose genres were edited manually are never overwritten.
  */
 class GenreBackfillService
 {
-    public function __construct(private readonly MusicBrainzGenreService $musicbrainz) {}
+    public function __construct(
+        private readonly MusicBrainzGenreService $musicbrainz,
+        private readonly LastFmGenreService $lastfm,
+    ) {}
 
     /**
      * @return array{checked: int, updated: int, failed: int}
@@ -21,6 +27,7 @@ class GenreBackfillService
         $artists = Artist::query()
             ->join('streams', 'streams.artist_id', '=', 'artists.spotify_artist_id')
             ->where('streams.user_id', $user->id)
+            ->where('artists.genres_overridden', false)
             ->when(! $force, fn ($query) => $query->whereNull('artists.genres_synced_at'))
             ->select('artists.*')
             ->selectRaw('COUNT(streams.id) as plays')
@@ -36,9 +43,14 @@ class GenreBackfillService
         foreach ($artists as $artist) {
             try {
                 $result = $this->musicbrainz->lookup($artist);
+                $genres = $result['genres'];
+
+                if ($genres === []) {
+                    $genres = $this->lastfm->lookup($artist);
+                }
 
                 $artist->forceFill([
-                    'genres' => $result['genres'],
+                    'genres' => $genres,
                     'musicbrainz_id' => $result['musicbrainz_id'],
                     'genres_synced_at' => now(),
                 ])->save();

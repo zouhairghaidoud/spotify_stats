@@ -38,16 +38,35 @@ class AnalyticsController extends Controller
         $range = is_string($range) && in_array($range, self::RANGES, true) ? $range : 'all';
         $from = $this->rangeStart($range);
 
+        $filters = [
+            'genre' => $this->stringQuery($request, 'genre'),
+            'artist_id' => $this->stringQuery($request, 'artist'),
+            'context' => $this->stringQuery($request, 'context'),
+        ];
+
         return Inertia::render('Analytics', [
             'spotifyConnected' => $user->isConnectedToSpotify(),
-            ...$analytics->forUser($user, $timezone, $search, $from),
+            ...$analytics->forUser($user, $timezone, $search, $from, null, $filters),
             'trends' => $analytics->artistTrends($user, $timezone),
             'comparison' => $analytics->artistComparison($user),
             'search' => $search ?? '',
             'range' => $range,
+            'filters' => [
+                'genre' => $filters['genre'],
+                'artist' => $filters['artist_id'],
+                'context' => $filters['context'],
+            ],
+            'filterOptions' => $analytics->filterOptions($user),
             'importSummary' => $imports->summary($user),
             'imports' => $imports->recent($user),
         ]);
+    }
+
+    private function stringQuery(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 
     private function rangeStart(string $range): ?Carbon

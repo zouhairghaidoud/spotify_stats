@@ -183,6 +183,56 @@ it('renders the recap for a selected year', function () {
             ->where('recap.period.from', fn ($value) => str_starts_with((string) $value, '2025-06-01')));
 });
 
+it('compares a recap year with another year', function () {
+    $user = User::factory()->create();
+
+    recapTrack('track-a', 'Track A', 'artist-1', 'Artist One');
+    recapPlay($user, 'track-a', '2025-06-01 10:00:00', 210000, 'artist-1');
+    recapPlay($user, 'track-a', '2025-06-02 10:00:00', 210000, 'artist-1');
+    recapPlay($user, 'track-a', '2026-06-01 10:00:00', 210000, 'artist-1');
+
+    $this->actingAs($user)
+        ->get('/recap?year=2026&compare=2025')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Recap')
+            ->where('year', 2026)
+            ->where('compareYear', 2025)
+            ->where('recap.overview.plays', 1)
+            ->where('comparison.year', 2025)
+            ->where('comparison.overview.plays', 2));
+});
+
+it('ignores a comparison year when no year is selected', function () {
+    $user = User::factory()->create();
+
+    recapPlay($user, 'track-a', '2025-06-01 10:00:00', 210000, 'artist-1');
+
+    $this->actingAs($user)
+        ->get('/recap?compare=2025')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Recap')
+            ->where('year', null)
+            ->where('compareYear', null)
+            ->where('comparison', null));
+});
+
+it('ignores a comparison year that matches the selected year', function () {
+    $user = User::factory()->create();
+
+    recapPlay($user, 'track-a', '2025-06-01 10:00:00', 210000, 'artist-1');
+
+    $this->actingAs($user)
+        ->get('/recap?year=2025&compare=2025')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('Recap')
+            ->where('year', 2025)
+            ->where('compareYear', null)
+            ->where('comparison', null));
+});
+
 it('ignores recap years that are not in the history', function () {
     $user = User::factory()->create();
 

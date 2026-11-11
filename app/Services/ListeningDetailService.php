@@ -97,6 +97,7 @@ class ListeningDetailService
      *     artist_id: string,
      *     name: string,
      *     genres: array<int, string>,
+     *     genres_overridden: bool,
      *     overview: array{plays: int, minutes: int, unique_tracks: int, unique_albums: int, first_played_at: string|null, last_played_at: string|null},
      *     timeline: array<int, array{month: string, plays: int}>,
      *     tracks: array<int, array{spotify_track_id: string, name: string, album_name: string|null, plays: int, minutes: int, album_image_url: string|null}>,
@@ -192,6 +193,7 @@ class ListeningDetailService
             'artist_id' => $artistId,
             'name' => (string) $name,
             'genres' => $artist?->genres ?? [],
+            'genres_overridden' => (bool) ($artist?->genres_overridden ?? false),
             'overview' => [
                 'plays' => (int) $overview->plays,
                 'minutes' => intdiv((int) $overview->duration_ms, 60000),

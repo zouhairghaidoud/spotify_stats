@@ -1,7 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, Link } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { Head, Link, useForm } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
     artist: {
@@ -59,6 +59,46 @@ function trackUrl(id) {
         ? `https://open.spotify.com/track/${id}`
         : null;
 }
+
+const editingGenres = ref(false);
+const newGenre = ref('');
+const genreForm = useForm({
+    genres: [...(props.artist.genres ?? [])],
+});
+
+function startEditingGenres() {
+    genreForm.defaults({ genres: [...(props.artist.genres ?? [])] });
+    genreForm.reset();
+    genreForm.clearErrors();
+    newGenre.value = '';
+    editingGenres.value = true;
+}
+
+function addGenre() {
+    const genre = newGenre.value.trim().toLowerCase();
+
+    if (!genre || genreForm.genres.includes(genre)) {
+        newGenre.value = '';
+
+        return;
+    }
+
+    genreForm.genres.push(genre);
+    newGenre.value = '';
+}
+
+function removeGenre(index) {
+    genreForm.genres.splice(index, 1);
+}
+
+function saveGenres() {
+    genreForm.post(route('artists.genres.update', props.artist.artist_id), {
+        preserveScroll: true,
+        onSuccess: () => {
+            editingGenres.value = false;
+        },
+    });
+}
 </script>
 
 <template>
@@ -113,14 +153,98 @@ function trackUrl(id) {
                     </div>
                 </div>
 
-                <div v-if="artist.genres.length" class="mt-5 flex flex-wrap gap-2">
-                    <span
-                        v-for="genre in artist.genres"
-                        :key="genre"
-                        class="rounded-full bg-white/[0.05] px-3 py-1 text-xs font-semibold text-ink-300"
-                    >
-                        {{ genre }}
-                    </span>
+                <div class="mt-5 border-t border-white/[0.06] pt-4">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs font-semibold uppercase tracking-wide text-ink-400">
+                                Genres
+                            </span>
+                            <span
+                                v-if="artist.genres_overridden"
+                                class="rounded-full bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-300"
+                            >
+                                Manual
+                            </span>
+                        </div>
+                        <button
+                            v-if="!editingGenres"
+                            type="button"
+                            class="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-ink-200 transition hover:bg-white/[0.08]"
+                            @click="startEditingGenres"
+                        >
+                            {{ artist.genres.length ? 'Edit genres' : 'Add genres' }}
+                        </button>
+                    </div>
+
+                    <div v-if="!editingGenres">
+                        <div v-if="artist.genres.length" class="mt-3 flex flex-wrap gap-2">
+                            <span
+                                v-for="genre in artist.genres"
+                                :key="genre"
+                                class="rounded-full bg-white/[0.05] px-3 py-1 text-xs font-semibold text-ink-300"
+                            >
+                                {{ genre }}
+                            </span>
+                        </div>
+                        <p v-else class="mt-3 text-xs text-ink-500">
+                            No genres yet. Add them manually or run a genre backfill.
+                        </p>
+                    </div>
+
+                    <form v-else class="mt-3 space-y-3" @submit.prevent="saveGenres">
+                        <div v-if="genreForm.genres.length" class="flex flex-wrap gap-2">
+                            <button
+                                v-for="(genre, index) in genreForm.genres"
+                                :key="genre"
+                                type="button"
+                                class="group flex items-center gap-1.5 rounded-full bg-brand-500/15 px-3 py-1 text-xs font-semibold text-brand-200 transition hover:bg-brand-500/25"
+                                :title="`Remove ${genre}`"
+                                @click="removeGenre(index)"
+                            >
+                                {{ genre }}
+                                <span class="text-brand-300 group-hover:text-white">&times;</span>
+                            </button>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2">
+                            <input
+                                v-model="newGenre"
+                                type="text"
+                                maxlength="40"
+                                placeholder="Add a genre and press Enter"
+                                class="min-w-[180px] flex-1 rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm text-white placeholder:text-ink-500 focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/30"
+                                @keydown.enter.prevent="addGenre"
+                            />
+                            <button
+                                type="button"
+                                class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-ink-200 transition hover:bg-white/[0.08]"
+                                @click="addGenre"
+                            >
+                                Add
+                            </button>
+                        </div>
+
+                        <p v-if="genreForm.errors.genres" class="text-xs text-red-400">
+                            {{ genreForm.errors.genres }}
+                        </p>
+
+                        <div class="flex items-center gap-2">
+                            <button
+                                type="submit"
+                                class="rounded-xl bg-brand-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-400 disabled:opacity-50"
+                                :disabled="genreForm.processing"
+                            >
+                                {{ genreForm.processing ? 'Saving…' : 'Save genres' }}
+                            </button>
+                            <button
+                                type="button"
+                                class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-ink-200 transition hover:bg-white/[0.08]"
+                                @click="editingGenres = false"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </section>
 

@@ -181,6 +181,87 @@ it('only rechecks artists that were already synced when forced', function () {
         ->and($artist->refresh()->genres)->toBe(['ambient']);
 });
 
+it('falls back to last.fm when musicbrainz returns no genres', function () {
+    config()->set('services.lastfm.api_key', 'test-key');
+    config()->set('services.lastfm.base_url', 'https://ws.audioscrobbler.com/2.0');
+
+    Http::fake([
+        'musicbrainz.org/ws/2/url*' => Http::response([
+            'relations' => [['artist' => ['id' => 'mbid-7']]],
+        ]),
+        'musicbrainz.org/ws/2/artist/mbid-7*' => Http::response([
+            'genres' => [],
+            'tags' => [],
+        ]),
+        'ws.audioscrobbler.com/*' => Http::response([
+            'toptags' => [
+                'tag' => [
+                    ['name' => 'Moroccan Rap', 'count' => 100],
+                    ['name' => 'seen live', 'count' => 80],
+                    ['name' => 'Trap', 'count' => 40],
+                ],
+            ],
+        ]),
+    ]);
+
+    $user = User::factory()->create();
+    $artist = genreArtist('spotify-artist-7', 'Artist Seven');
+    genrePlay($user, 'spotify-artist-7');
+
+    $result = app(GenreBackfillService::class)->backfill($user);
+
+    expect($result)->toBe(['checked' => 1, 'updated' => 1, 'failed' => 0])
+        ->and($artist->refresh()->genres)->toBe(['moroccan rap', 'trap'])
+        ->and($artist->musicbrainz_id)->toBe('mbid-7');
+});
+
+it('keeps manually edited genres even when a backfill is forced', function () {
+    Http::fake();
+
+    $user = User::factory()->create();
+    $artist = genreArtist('spotify-artist-8', 'Artist Eight', ['custom genre']);
+    $artist->forceFill(['genres_overridden' => true])->save();
+    genrePlay($user, 'spotify-artist-8');
+
+    $result = app(GenreBackfillService::class)->backfill($user, force: true);
+
+    expect($result['checked'])->toBe(0)
+        ->and($artist->refresh()->genres)->toBe(['custom genre']);
+});
+
+it('lets the user override an artist genre list', function () {
+    $user = User::factory()->create();
+    $artist = genreArtist('spotify-artist-9', 'Artist Nine', ['old genre']);
+    genrePlay($user, 'spotify-artist-9');
+
+    $this->actingAs($user)
+        ->post('/artists/spotify-artist-9/genres', [
+            'genres' => ['Hip Hop', 'hip hop', 'Trap'],
+        ])
+        ->assertRedirect()
+        ->assertSessionHas('success');
+
+    $artist->refresh();
+
+    expect($artist->genres)->toBe(['hip hop', 'trap'])
+        ->and($artist->genres_overridden)->toBeTrue()
+        ->and($artist->genres_synced_at)->not->toBeNull();
+});
+
+it('rejects genre overrides for artists the user has not played', function () {
+    $user = User::factory()->create();
+    genreArtist('spotify-artist-10', 'Artist Ten');
+
+    $this->actingAs($user)
+        ->post('/artists/spotify-artist-10/genres', ['genres' => ['trap']])
+        ->assertNotFound();
+});
+
+it('requires authentication to override artist genres', function () {
+    $this->post('/artists/spotify-artist-11/genres', ['genres' => ['trap']])
+        ->assertRedirect('/login');
+});
+
 it('queues a genre backfill from the analytics page', function () {
     Queue::fake();
 

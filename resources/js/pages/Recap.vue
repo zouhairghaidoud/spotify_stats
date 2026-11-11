@@ -1,7 +1,9 @@
 <script setup>
+import RecapComparison from '@/Components/RecapComparison.vue';
 import RecapStory from '@/Components/RecapStory.vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, Link, router } from '@inertiajs/vue3';
+import { computed } from 'vue';
 
 const props = defineProps({
     shared: {
@@ -20,6 +22,14 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    compareYear: {
+        type: Number,
+        default: null,
+    },
+    comparison: {
+        type: Object,
+        default: null,
+    },
     publicUrl: {
         type: String,
         default: null,
@@ -30,10 +40,29 @@ const props = defineProps({
     },
 });
 
+const compareYears = computed(() =>
+    props.years.filter((option) => option !== props.year),
+);
+
 function selectYear(year) {
     router.get(
         route('recap'),
         year === null ? {} : { year },
+        {
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
+        },
+    );
+}
+
+function selectCompare(year) {
+    router.get(
+        route('recap'),
+        {
+            year: props.year,
+            ...(year === null ? {} : { compare: year }),
+        },
         {
             preserveState: true,
             preserveScroll: true,
@@ -87,6 +116,23 @@ function selectYear(year) {
                         </select>
                     </label>
 
+                    <label
+                        v-if="year !== null && compareYears.length"
+                        class="flex items-center gap-2 text-xs font-semibold text-ink-300"
+                    >
+                        <span class="text-ink-500">Compare</span>
+                        <select
+                            :value="compareYear ?? ''"
+                            class="rounded-full border border-white/10 bg-ink-900 px-3 py-2 text-xs font-semibold text-white transition focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/30"
+                            @change="selectCompare($event.target.value === '' ? null : Number($event.target.value))"
+                        >
+                            <option value="">Off</option>
+                            <option v-for="option in compareYears" :key="option" :value="option">
+                                {{ option }}
+                            </option>
+                        </select>
+                    </label>
+
                     <Link
                         :href="route('analytics')"
                         class="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-ink-200 transition hover:bg-white/[0.08]"
@@ -96,6 +142,15 @@ function selectYear(year) {
                 </div>
             </div>
         </template>
+
+        <RecapComparison
+            v-if="comparison && year !== null && compareYear !== null"
+            :current="recap"
+            :comparison="comparison"
+            :year="year"
+            :compare-year="compareYear"
+            class="mb-8"
+        />
 
         <RecapStory
             :recap="recap"

@@ -46,6 +46,14 @@ const props = defineProps({
         type: String,
         default: 'all',
     },
+    filters: {
+        type: Object,
+        default: () => ({ genre: null, artist: null, context: null }),
+    },
+    filterOptions: {
+        type: Object,
+        default: () => ({ genres: [], artists: [], contexts: [] }),
+    },
     importSummary: {
         type: Object,
         default: () => ({
@@ -69,6 +77,16 @@ const props = defineProps({
     streaks: {
         type: Object,
         required: true,
+    },
+    completion: {
+        type: Object,
+        default: () => ({
+            plays: 0,
+            skipped: 0,
+            completed: 0,
+            rate: 0,
+            skipped_tracks: [],
+        }),
     },
     trends: {
         type: Object,
@@ -106,6 +124,12 @@ function queryParams(overrides = {}) {
         params.range = props.range;
     }
 
+    for (const key of ['genre', 'artist', 'context']) {
+        if (overrides[key] === undefined && props.filters?.[key]) {
+            params[key] = props.filters[key];
+        }
+    }
+
     return Object.fromEntries(
         Object.entries(params).filter(([, value]) => value !== '' && value !== null),
     );
@@ -121,6 +145,43 @@ function selectRange(range) {
         preserveScroll: true,
         replace: true,
     });
+}
+
+function selectFilter(key, value) {
+    router.get(route('analytics'), queryParams({ [key]: value }), {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+    });
+}
+
+function clearFilters() {
+    router.get(
+        route('analytics'),
+        queryParams({ genre: '', artist: '', context: '' }),
+        {
+            preserveState: true,
+            preserveScroll: true,
+            replace: true,
+        },
+    );
+}
+
+const hasActiveFilters = computed(
+    () => Boolean(props.filters?.genre || props.filters?.artist || props.filters?.context),
+);
+
+const contextLabels = {
+    json_import: 'Imported history',
+    playlist: 'Playlist',
+    album: 'Album',
+    artist: 'Artist',
+    radio: 'Radio',
+    collection: 'Your library',
+};
+
+function contextLabel(context) {
+    return contextLabels[context] ?? context;
 }
 
 const hasPlays = computed(() => props.overview.plays > 0);
@@ -188,6 +249,13 @@ onBeforeUnmount(() => {
 });
 
 const discoveryPercent = computed(() => Math.round(props.discovery.rate * 100));
+
+const completionPercent = computed(() => Math.round((props.completion?.rate ?? 0) * 100));
+const skipPercent = computed(() =>
+    props.completion?.plays
+        ? Math.round((props.completion.skipped / props.completion.plays) * 100)
+        : 0,
+);
 
 const trendChartData = computed(() => ({
     labels: props.trends.weeks.map(formatWeek),
@@ -523,6 +591,84 @@ function cellLabel(dayIndex, hour, count) {
         </template>
 
         <div class="space-y-6">
+            <!-- Filters -->
+            <section
+                v-if="
+                    filterOptions.genres.length ||
+                    filterOptions.artists.length ||
+                    filterOptions.contexts.length
+                "
+                class="surface-card flex flex-wrap items-end gap-3 px-5 py-4"
+            >
+                <div class="min-w-[150px] flex-1">
+                    <label class="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-ink-500" for="filter-genre">
+                        Genre
+                    </label>
+                    <select
+                        id="filter-genre"
+                        :value="filters.genre ?? ''"
+                        class="w-full rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm font-semibold text-white transition focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/30"
+                        @change="selectFilter('genre', $event.target.value)"
+                    >
+                        <option value="">All genres</option>
+                        <option v-for="genre in filterOptions.genres" :key="genre" :value="genre">
+                            {{ genre }}
+                        </option>
+                    </select>
+                </div>
+
+                <div class="min-w-[180px] flex-1">
+                    <label class="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-ink-500" for="filter-artist">
+                        Artist
+                    </label>
+                    <select
+                        id="filter-artist"
+                        :value="filters.artist ?? ''"
+                        class="w-full rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm font-semibold text-white transition focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/30"
+                        @change="selectFilter('artist', $event.target.value)"
+                    >
+                        <option value="">All artists</option>
+                        <option
+                            v-for="artist in filterOptions.artists"
+                            :key="artist.artist_id"
+                            :value="artist.artist_id"
+                        >
+                            {{ artist.name }}
+                        </option>
+                    </select>
+                </div>
+
+                <div class="min-w-[150px] flex-1">
+                    <label class="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-ink-500" for="filter-context">
+                        Source
+                    </label>
+                    <select
+                        id="filter-context"
+                        :value="filters.context ?? ''"
+                        class="w-full rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm font-semibold text-white transition focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/30"
+                        @change="selectFilter('context', $event.target.value)"
+                    >
+                        <option value="">All sources</option>
+                        <option
+                            v-for="context in filterOptions.contexts"
+                            :key="context"
+                            :value="context"
+                        >
+                            {{ contextLabel(context) }}
+                        </option>
+                    </select>
+                </div>
+
+                <button
+                    v-if="hasActiveFilters"
+                    type="button"
+                    class="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-ink-200 transition hover:bg-white/[0.08]"
+                    @click="clearFilters"
+                >
+                    Clear filters
+                </button>
+            </section>
+
             <!-- Empty state -->
             <section
                 v-if="!hasPlays"
@@ -690,6 +836,104 @@ function cellLabel(dayIndex, hour, count) {
                         </div>
                     </section>
                 </div>
+
+                <!-- Completion and skip rate -->
+                <section class="surface-card overflow-hidden">
+                    <header
+                        class="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-4"
+                    >
+                        <div>
+                            <h2 class="text-base font-bold text-white">
+                                Completion &amp; skips
+                            </h2>
+                            <p class="mt-0.5 text-xs text-ink-400">
+                                Based on imported plays, where we know how much of
+                                each track you actually heard
+                            </p>
+                        </div>
+                        <p
+                            v-if="completion.plays"
+                            class="text-xs font-semibold text-ink-400"
+                        >
+                            {{ formatNumber(completion.plays) }} measurable plays
+                        </p>
+                    </header>
+
+                    <div v-if="completion.plays" class="p-5">
+                        <div class="grid gap-4 sm:grid-cols-3">
+                            <div
+                                class="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4"
+                            >
+                                <p class="text-3xl font-extrabold text-brand-400">
+                                    {{ completionPercent }}%
+                                </p>
+                                <p class="mt-1 text-xs text-ink-400">
+                                    Finished a track
+                                </p>
+                            </div>
+                            <div
+                                class="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4"
+                            >
+                                <p class="text-3xl font-extrabold text-white">
+                                    {{ skipPercent }}%
+                                </p>
+                                <p class="mt-1 text-xs text-ink-400">
+                                    Skipped early
+                                </p>
+                            </div>
+                            <div
+                                class="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-4"
+                            >
+                                <p class="text-3xl font-extrabold text-white">
+                                    {{ formatNumber(completion.completed) }}
+                                </p>
+                                <p class="mt-1 text-xs text-ink-400">
+                                    Completed plays
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="completion.skipped_tracks.length"
+                            class="mt-5"
+                        >
+                            <h3
+                                class="text-[11px] font-semibold uppercase tracking-wide text-ink-500"
+                            >
+                                Most skipped tracks
+                            </h3>
+                            <ul class="mt-2 divide-y divide-white/[0.06]">
+                                <li
+                                    v-for="track in completion.skipped_tracks"
+                                    :key="track.spotify_track_id"
+                                    class="flex items-center justify-between gap-3 py-2.5"
+                                >
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-semibold text-white">
+                                            {{ track.name }}
+                                        </p>
+                                        <p class="truncate text-xs text-ink-400">
+                                            {{ track.artist_name ?? 'Unknown artist' }}
+                                        </p>
+                                    </div>
+                                    <div class="shrink-0 text-right">
+                                        <p class="text-sm font-bold tabular-nums text-white">
+                                            {{ Math.round(track.skip_rate * 100) }}%
+                                        </p>
+                                        <p class="text-[11px] text-ink-500">
+                                            {{ track.skips }} of {{ track.plays }} plays
+                                        </p>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <p v-else class="px-5 py-6 text-sm text-ink-400">
+                        Import your streaming history to see how often you finish
+                        tracks and which songs you skip most.
+                    </p>
+                </section>
 
                 <!-- Artist trends -->
                 <section class="surface-card overflow-hidden">

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\ArtistGenreController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GenreController;
 use App\Http\Controllers\HistoryDataController;
@@ -46,6 +47,10 @@ Route::get('/albums/{album}', [ListeningDetailController::class, 'album'])
 Route::get('/artists/{artistId}', [ListeningDetailController::class, 'artist'])
     ->middleware(['auth', 'verified'])
     ->name('artists.show');
+
+Route::post('/artists/{artistId}/genres', [ArtistGenreController::class, 'update'])
+    ->middleware(['auth', 'verified'])
+    ->name('artists.genres.update');
 
 Route::post('/import', [ImportController::class, 'store'])
     ->middleware(['auth', 'verified'])
